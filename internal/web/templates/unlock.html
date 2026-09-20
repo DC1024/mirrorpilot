@@ -1,0 +1,19 @@
+{{define "content"}}
+<section class="card card-narrow">
+  <h1>{{ .T "unlock.title" }}</h1>
+  <p class="lead">{{ .T "unlock.subtitle" }}</p>
+
+  {{ template "formerror" . }}
+
+  <form method="post" action="/unlock" class="stack">
+    {{ template "csrf" . }}
+
+    <label class="field">
+      <span class="field-label">{{ .T "unlock.password" }}</span>
+      <input name="password" type="password" autocomplete="current-password" required autofocus>
+    </label>
+
+    <button class="btn btn-primary" type="submit">{{ .T "unlock.submit" }}</button>
+  </form>
+</section>
+{{end}}

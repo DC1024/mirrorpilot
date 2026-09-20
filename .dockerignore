@@ -1,0 +1,9 @@
+.git
+.github
+.tools
+data
+*.log
+coverage.out
+coverage.html
+.env
+.env.local

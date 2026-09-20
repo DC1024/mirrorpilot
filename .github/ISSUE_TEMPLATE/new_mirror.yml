@@ -1,0 +1,96 @@
+name: New mirror proposal
+description: Propose adding a container registry mirror to the built-in list
+title: "[Mirror] "
+labels: ["mirror-list"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing. Please test the mirror from your own network before submitting —
+        untested entries will be closed.
+
+  - type: input
+    id: name
+    attributes:
+      label: Mirror name
+      placeholder: Example Mirror
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: Mirror URL
+      description: Include the scheme. Example, https://docker.example.com
+    validations:
+      required: true
+
+  - type: input
+    id: homepage
+    attributes:
+      label: Homepage or operator page
+      description: Where can users learn who runs this mirror?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Upstream coverage
+      multiple: true
+      options:
+        - docker.io
+        - ghcr.io
+        - quay.io
+        - gcr.io
+        - registry.k8s.io
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Operator type
+      options:
+        - Cloud vendor
+        - Academic institution
+        - Company
+        - Community project
+        - Individual
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tls
+    attributes:
+      label: Transport
+      options:
+        - HTTPS
+        - HTTP (not recommended, will be flagged in the UI)
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Test evidence
+      description: Paste real output from your own machine, taken within the last 7 days.
+      placeholder: |
+        $ curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" \
+            https://docker.example.com/v2/library/alpine/manifests/latest
+        200 0.412s
+
+        $ docker pull docker.example.com/library/alpine
+        ...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I verified this mirror responds from my network within the last 7 days
+          required: true
+        - label: I am not the operator of this mirror, or I have disclosed that I am
+          required: true

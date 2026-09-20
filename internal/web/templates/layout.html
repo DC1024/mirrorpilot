@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}" data-theme="{{ .Theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{ .T .TitleKey }} · {{ .T "app.name" }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">{{ .T "app.name" }}</span>
+    </a>
+
+    {{- if .Authed }}
+    <nav class="nav" aria-label="{{ .T "nav.dashboard" }}">
+      <a href="/dashboard"{{ if eq .Nav "nav.dashboard" }} aria-current="page"{{ end }}>{{ .T "nav.dashboard" }}</a>
+      <a href="/settings"{{ if eq .Nav "nav.settings" }} aria-current="page"{{ end }}>{{ .T "nav.settings" }}</a>
+      <a href="https://github.com/DC1024/mirrorpilot" target="_blank" rel="noopener noreferrer">{{ .T "nav.docs" }}</a>
+    </nav>
+
+    <div class="topbar-tools">
+      {{ template "langswitch" . }}
+      {{ template "themeswitch" . }}
+      {{ template "logoutform" . }}
+    </div>
+    {{- end }}
+  </header>
+
+  {{- if and .Authed (not .Unlocked) }}
+  <div class="banner banner-warn" role="status">
+    <span class="banner-text">{{ .T "unlock.banner" }}</span>
+    <a class="btn btn-small" href="/unlock">{{ .T "action.unlock" }}</a>
+  </div>
+  {{- end }}
+
+  {{- if .Flash }}
+  <div class="banner banner-ok" role="status">
+    <span class="banner-text">{{ .Flash }}</span>
+  </div>
+  {{- end }}
+
+  <main class="main" id="main">
+    {{ template "content" . }}
+  </main>
+
+  <footer class="footer">
+    <p>{{ .T "app.disclaimer_short" }}</p>
+    <p class="muted">{{ .T "app.tagline" }}<span class="sep">·</span>v{{ .Version }}</p>
+  </footer>
+</body>
+</html>

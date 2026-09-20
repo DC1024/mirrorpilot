@@ -1,0 +1,40 @@
+{{define "content"}}
+<section class="card">
+  <h1>{{ .T "settings.title" }}</h1>
+  <p class="lead">{{ .T "settings.subtitle" }}</p>
+
+  {{ template "formerror" . }}
+
+  <form method="post" action="/settings" class="stack">
+    {{ template "csrf" . }}
+
+    <fieldset class="group">
+      <legend>{{ .T "settings.appearance" }}</legend>
+
+      <label class="field">
+        <span class="field-label">{{ .T "settings.language" }}</span>
+        <select name="locale">
+          {{- range .AvailableLanguages }}
+          <option value="{{ .Tag }}"{{ if eq .Tag $.Lang }} selected{{ end }}>{{ .Name }}</option>
+          {{- end }}
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field-label">{{ .T "settings.theme" }}</span>
+        <select name="theme">
+          {{- range .ThemeOptions }}
+          <option value="{{ .Tag }}"{{ if eq .Tag $.Theme }} selected{{ end }}>{{ $.T .LabelKey }}</option>
+          {{- end }}
+        </select>
+      </label>
+    </fieldset>
+
+    <button class="btn btn-primary" type="submit">{{ .T "action.save" }}</button>
+  </form>
+</section>
+
+<section class="card">
+  <p><a class="btn" href="/password">{{ .T "password.title" }}</a></p>
+</section>
+{{end}}

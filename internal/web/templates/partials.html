@@ -1,0 +1,63 @@
+{{/*
+  Shared partials.
+
+  Templates are parsed explicitly (see loadTemplates), so layout.html is the
+  root and everything here is reached by name. Nothing in this file is rendered
+  on its own.
+*/}}
+
+{{/* csrf is the hidden token every state-changing form must carry. */}}
+{{define "csrf" -}}
+<input type="hidden" name="csrf" value="{{ .CSRF }}">
+{{- end}}
+
+{{/* formerror shows the reason a submission was rejected. */}}
+{{define "formerror" -}}
+{{ if .Error }}<p class="alert alert-error" role="alert">{{ .Error }}</p>{{ end }}
+{{- end}}
+
+{{/*
+  langswitch and themeswitch submit themselves on change.
+
+  They are forms rather than links because switching a preference mutates
+  stored state, which is exactly what CSRF protection exists for — and a GET
+  that changes state is the thing that protection is meant to prevent.
+
+  A short script in app.js wires up the onchange; without it the picker still
+  works, it just needs the visitor to press Enter.
+*/}}
+{{define "langswitch" -}}
+<form class="picker" method="post" action="/lang">
+  {{ template "csrf" . }}
+  <input type="hidden" name="next" value="{{ .SelfPath }}">
+  <label class="sr-only" for="lang-select">{{ .T "settings.language" }}</label>
+  <select id="lang-select" name="locale" data-autosubmit>
+    {{- range .AvailableLanguages }}
+    <option value="{{ .Tag }}"{{ if eq .Tag $.Lang }} selected{{ end }}>{{ .Name }}</option>
+    {{- end }}
+  </select>
+  <noscript><button class="btn btn-small" type="submit">{{ .T "action.save" }}</button></noscript>
+</form>
+{{- end}}
+
+{{define "themeswitch" -}}
+<form class="picker" method="post" action="/theme">
+  {{ template "csrf" . }}
+  <input type="hidden" name="next" value="{{ .SelfPath }}">
+  <label class="sr-only" for="theme-select">{{ .T "settings.theme" }}</label>
+  <select id="theme-select" name="theme" data-autosubmit>
+    {{- range .ThemeOptions }}
+    <option value="{{ .Tag }}"{{ if eq .Tag $.Theme }} selected{{ end }}>{{ $.T .LabelKey }}</option>
+    {{- end }}
+  </select>
+  <noscript><button class="btn btn-small" type="submit">{{ .T "action.save" }}</button></noscript>
+</form>
+{{- end}}
+
+{{/* logoutform posts, so a link or a prefetch cannot end the session. */}}
+{{define "logoutform" -}}
+<form class="picker" method="post" action="/logout">
+  {{ template "csrf" . }}
+  <button class="btn btn-ghost" type="submit">{{ .T "nav.logout" }}</button>
+</form>
+{{- end}}

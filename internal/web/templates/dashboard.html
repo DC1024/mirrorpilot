@@ -1,0 +1,42 @@
+{{define "content"}}
+<section class="card">
+  <h1>{{ .T "dashboard.title" }}</h1>
+  <p class="lead">{{ .T "dashboard.subtitle" }}</p>
+
+  <dl class="facts">
+    <div class="fact">
+      <dt>{{ .T "dashboard.state" }}</dt>
+      <dd>
+        {{- if .Unlocked -}}
+        <span class="pill pill-ok">{{ .T "dashboard.state.ready" }}</span>
+        {{- else -}}
+        <span class="pill pill-warn">{{ .T "dashboard.state.locked" }}</span>
+        {{- end -}}
+      </dd>
+    </div>
+
+    {{ if .Authed }}
+    <div class="fact">
+      <dt>{{ .T "dashboard.signed_in_as" }}</dt>
+      <dd>{{ .User }}</dd>
+    </div>
+    {{ end }}
+
+    <div class="fact">
+      <dt>{{ .T "dashboard.version" }}</dt>
+      <dd>v{{ .Version }}</dd>
+    </div>
+  </dl>
+
+  {{ if not .Unlocked }}
+  <a class="btn btn-primary" href="/unlock">{{ .T "action.unlock" }}</a>
+  {{ end }}
+</section>
+
+<section class="card">
+  <h2>{{ .T "disclaimer.title" }}</h2>
+  <p>{{ .T "disclaimer.body" }}</p>
+  <p>{{ .T "disclaimer.official_only" }}</p>
+  <p class="note">{{ .T "disclaimer.no_warranty" }}</p>
+</section>
+{{end}}

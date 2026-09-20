@@ -1,0 +1,32 @@
+{{define "content"}}
+<section class="card card-narrow">
+  <h1>{{ .T "setup.title" }}</h1>
+  <p class="lead">{{ .T "setup.subtitle" }}</p>
+
+  {{ template "formerror" . }}
+
+  <form method="post" action="/setup" class="stack">
+    {{ template "csrf" . }}
+
+    <label class="field">
+      <span class="field-label">{{ .T "setup.username" }}</span>
+      <input name="username" type="text" autocomplete="username" required autofocus>
+    </label>
+
+    <label class="field">
+      <span class="field-label">{{ .T "setup.password" }}</span>
+      <input name="password" type="password" autocomplete="new-password" required minlength="{{ .MinPasswordLength }}">
+      <small class="field-hint">{{ .T "setup.password_hint" .MinPasswordLength }}</small>
+    </label>
+
+    <label class="field">
+      <span class="field-label">{{ .T "setup.confirm" }}</span>
+      <input name="confirm" type="password" autocomplete="new-password" required minlength="{{ .MinPasswordLength }}">
+    </label>
+
+    <button class="btn btn-primary" type="submit">{{ .T "setup.submit" }}</button>
+  </form>
+
+  <p class="note">{{ .T "setup.explainer" }}</p>
+</section>
+{{end}}

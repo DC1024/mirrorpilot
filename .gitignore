@@ -1,0 +1,28 @@
+# Binaries
+/mirrorpilot
+/dist/
+*.exe
+*.test
+*.out
+
+# Runtime data (created by the container / local runs)
+/data/
+
+# Coverage
+coverage.out
+coverage.html
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env
+.env
+.env.local
+*.local.yaml

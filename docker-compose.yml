@@ -1,0 +1,31 @@
+services:
+  mirrorpilot:
+    # GHCR image paths must be lowercase, even though the GitHub account
+    # name is cased differently.
+    image: ghcr.io/dc1024/mirrorpilot:latest
+    container_name: mirrorpilot
+
+    ports:
+      # WARNING: this panel stores credentials for your GitHub and Alibaba Cloud
+      # accounts. Do not publish it to the internet. Keep it on your LAN, or
+      # front it with a reverse proxy that terminates TLS and adds auth.
+      - "8080:8080"
+
+    volumes:
+      # Everything persistent: the config file and the SQLite database, which
+      # holds the account, the sessions, and the encrypted credentials.
+      # Backing up is copying this one directory.
+      - ./data:/data
+
+    environment:
+      - TZ=Asia/Shanghai
+      - MIRRORPILOT_BIND=0.0.0.0:8080
+      - MIRRORPILOT_DATA=/data
+
+      # Uncomment when a reverse proxy terminates TLS in front of the panel,
+      # and put your real hostname here. It is what makes the panel mark its
+      # cookies Secure. Leave it unset for plain-HTTP access on a LAN: a Secure
+      # cookie is never sent over HTTP, so logging in would silently fail.
+      # - MIRRORPILOT_BASE_URL=https://mirrorpilot.example.com
+
+    restart: unless-stopped

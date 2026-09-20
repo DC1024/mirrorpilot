@@ -1,0 +1,9 @@
+{{define "content"}}
+<section class="card card-narrow">
+  <h1>{{ .T "error.title" }}</h1>
+
+  <p class="alert alert-error" role="alert">{{ .Error }}</p>
+
+  <p><a class="btn" href="/">{{ .T "action.back" }}</a></p>
+</section>
+{{end}}

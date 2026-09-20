@@ -1,0 +1,17 @@
+# Normalise line endings on commit.
+#
+# A CRLF sneaking into a Go file, a JSON locale, or an HTML template does not
+# fail the build — it shows up later as a whole-file diff, which is worse. Keep
+# the repository LF-only and let Windows check out whatever it prefers.
+* text=auto eol=lf
+
+# Windows-only files genuinely want CRLF.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Never line-ending convert these.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.zip  binary
