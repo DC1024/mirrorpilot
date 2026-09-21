@@ -62,6 +62,8 @@ func run(ctx context.Context) error {
 		"persistent data directory (default: $MIRRORPILOT_DATA, else "+config.DefaultDataDir+")")
 	configFlag := flag.String("config", "",
 		"config file (default: <data directory>/"+config.DefaultFileName+")")
+	resetFlag := flag.Bool("reset", false,
+		"remove the account, the vault and every stored credential, then exit")
 	flag.Parse()
 
 	// The data directory has to be resolved before the config file can be
@@ -124,6 +126,12 @@ func run(ctx context.Context) error {
 			logger.Error("close database", "err", err)
 		}
 	}()
+
+	// Handled here rather than after the catalogue is seeded, because a reset
+	// is not a step on the way to serving: it is the whole point of this run.
+	if *resetFlag {
+		return resetPanel(ctx, db, cfg, logger)
+	}
 
 	// Seed the built-in catalogue before serving a single page, because the
 	// sources page is empty without it and an install that shows no mirrors
@@ -231,6 +239,39 @@ func newProbeFactory(db *store.Store) web.ProbeFactory {
 		}
 		return probe.NewRunner(engine, db, probe.RunnerOptions{})
 	}
+}
+
+// resetPanel clears the account and everything encrypted under it.
+//
+// The one way out of a forgotten master password. It is a flag and not a route
+// because a panel that can be reset over HTTP is a panel anyone who can reach
+// it can take over; requiring shell access is the whole of its security model,
+// and that is the right trade for a single-user tool.
+//
+// The mirror catalogue, the preferences and the measurement history are left
+// where they are. Nothing in them is secret, and losing a month of measurements
+// to fix a login would be a poor trade — the panel comes back asking to be set
+// up, with everything else still there.
+func resetPanel(ctx context.Context, db *store.Store, cfg config.Config, logger *slog.Logger) error {
+	counts, err := db.ResetCounts(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := db.Reset(ctx); err != nil {
+		return err
+	}
+
+	logger.Warn("panel reset: the panel is unconfigured again",
+		"data", cfg.DataDir,
+		"accounts_removed", counts.Users,
+		"credentials_removed", counts.Credentials,
+		"sessions_ended", counts.Sessions,
+	)
+	logger.Warn("every stored credential is gone for good: the key that encrypted them was derived from the password that was just discarded")
+	logger.Info("start the panel again to set a new password", "listen", cfg.Listen)
+
+	return nil
 }
 
 // sweepSessions prunes expired session rows.

@@ -36,6 +36,27 @@ const (
 	// materially different bytes — which makes the comparison the tool exists
 	// to produce quietly unfair.
 	SettingProbeReference = "probe_reference"
+
+	// SettingRelayEndpoint is the relay a pull address is built against, e.g.
+	// "swr.cn-north-4.myhuaweicloud.com/ddn-k8s".
+	//
+	// A host, optionally with a path prefix, and deliberately not a URL: the
+	// address is what goes in front of an image reference, and a scheme on the
+	// front of a docker pull argument is a syntax error rather than a
+	// preference.
+	SettingRelayEndpoint = "relay_endpoint"
+
+	// SettingSyncOwner, SettingSyncRepo, SettingSyncWorkflow and SettingSyncRef
+	// identify the repository whose workflow is dispatched.
+	//
+	// Four settings rather than one, because they are validated as separate
+	// fields and the repository's default branch is not knowable from here.
+	// SettingSyncRef blank means "let GitHub decide", which is what an omitted
+	// ref does.
+	SettingSyncOwner    = "sync_owner"
+	SettingSyncRepo     = "sync_repo"
+	SettingSyncWorkflow = "sync_workflow"
+	SettingSyncRef      = "sync_ref"
 )
 
 // Credential names, used as the primary key of the credentials table.
