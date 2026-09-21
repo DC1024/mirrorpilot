@@ -315,6 +315,18 @@ a:focus-visible {
   gap: 1.25rem;
 }
 
+/*
+  The speed test page carries nine columns — a mirror, a verdict, four layers
+  of measurement, a digest, a history and its actions — and on a reading-width
+  column that meant a permanent horizontal scrollbar on desktops, with the
+  numbers nobody scrolls to read hidden behind one. A page measured in columns
+  of numbers gets the width those columns need; the .scroll wrapper stays as
+  the fallback for screens genuinely narrower than the table.
+*/
+.main-wide {
+  max-width: 80rem;
+}
+
 .card {
   padding: clamp(1.1rem, 3vw, 1.6rem);
   background: var(--surface);
