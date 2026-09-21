@@ -272,9 +272,20 @@ func (p *Prober) checkConnectivity(ctx context.Context, base string) (Layer, aut
 	case http.StatusUnauthorized, http.StatusForbidden:
 		// Still alive: the host is up and speaking the protocol, which is all
 		// layer 1 asks. Whether we may pull from it is layer 3's problem.
-		return Layer{Status: StatusUnauthorized, Duration: elapsed,
-				Detail: "registry requires authentication"},
-			parseChallenge(resp.Header.Get("WWW-Authenticate"))
+		//
+		// The challenge decides what this answer *means*. A Bearer realm is
+		// how a registry tells an anonymous client where to get a token;
+		// every anonymous docker pull starts with exactly this 401, and
+		// docker follows it rather than asking anybody to log in. Calling
+		// that "needs credentials" is how the page ended up describing
+		// working mirrors as locked. With no realm there is nothing to
+		// follow, and then a refusal really is a refusal.
+		ch := parseChallenge(resp.Header.Get("WWW-Authenticate"))
+		if ch.realm == "" {
+			return Layer{Status: StatusUnauthorized, Duration: elapsed,
+				Detail: "refused anonymous access without advertising a token realm"}, authChallenge{}
+		}
+		return Layer{Status: StatusOK, Duration: elapsed, Detail: challengeNote(ch)}, ch
 	case http.StatusTooManyRequests:
 		return Layer{Status: StatusRateLimited, Duration: elapsed, Detail: retryAfter(resp)}, authChallenge{}
 	default:
@@ -320,6 +331,26 @@ func parseChallenge(header string) authChallenge {
 		}
 	}
 	return ch
+}
+
+// challengeNote explains a challenge in the words a reader needs: who answered,
+// and where the anonymous token therefore has to come from.
+func challengeNote(ch authChallenge) string {
+	if host := realmHost(ch.realm); host != "" {
+		return "anonymous pulls need a token from " + host
+	}
+	return "anonymous pulls need a token"
+}
+
+// realmHost is the authority a realm points at, or empty when the realm cannot
+// be parsed. It only ever feeds an explanation, so it does not need to decide
+// whether the realm is usable — fetchToken does that.
+func realmHost(realm string) string {
+	u, err := url.Parse(realm)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 // fetchToken is layer 2.

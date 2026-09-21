@@ -419,7 +419,9 @@ func TestProbeRateLimitedAtConnectStopsThere(t *testing.T) {
 	}
 }
 
-func TestProbeConnectUnauthorizedIsStillAlive(t *testing.T) {
+// A 401 without a realm is a wall: nothing was advertised for an anonymous
+// client to follow, so there is no step that would let us in.
+func TestProbeConnectUnauthorizedWithoutAChallengeIsACredentialWall(t *testing.T) {
 	blob := bytes.Repeat([]byte("x"), 1024)
 	child := mustJSON(t, testImage{
 		MediaType: "application/vnd.oci.image.manifest.v1+json",
@@ -437,8 +439,50 @@ func TestProbeConnectUnauthorizedIsStillAlive(t *testing.T) {
 	if res.Connect.Status != StatusUnauthorized {
 		t.Errorf("connect = %q, want %q", res.Connect.Status, StatusUnauthorized)
 	}
-	// A 401 on /v2/ proves the host is up and speaking the protocol. Whether
-	// we may pull is layer 3's question, and here the answer is yes.
+	if !contains(res.Connect.Detail, "token realm") {
+		t.Errorf("connect detail = %q, want it to say no realm was advertised", res.Connect.Detail)
+	}
+	// Alive still holds: the host answered and spoke the protocol, and here
+	// the layers below succeed without ever asking for a token.
+	if res.Status != StatusOK {
+		t.Errorf("status = %q, want %q (detail %q)", res.Status, StatusOK, res.Detail)
+	}
+}
+
+// The ordinary handshake: /v2/ answers 401 with a Bearer realm, which is what
+// every anonymous pull starts with. Reporting that as a credential wall is
+// what made the page describe working mirrors as locked.
+func TestProbeConnectAnsweringAChallengeIsNotACredentialWall(t *testing.T) {
+	blob := bytes.Repeat([]byte("x"), 1024)
+	child := mustJSON(t, testImage{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Layers:    []testDescriptor{{Digest: digestOf(blob), Size: int64(len(blob))}},
+	})
+
+	srv, src, _ := newStub(t, stub{
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		tokenPath:     "/auth/token",
+		token:         http.StatusOK,
+		manifests:     map[string]stubManifest{"latest": {body: child}},
+		blobs:         map[string][]byte{digestOf(blob): blob},
+		requireBearer: "stub-token",
+	})
+	defer srv.Close()
+
+	res := newProber(t, nil, nil).Probe(t.Context(), src)
+
+	if res.Connect.Status != StatusOK {
+		t.Fatalf("connect = %q (%q), want %q", res.Connect.Status, res.Connect.Detail, StatusOK)
+	}
+	// The realm is not the mirror itself in real life, so the note has to
+	// name where the token will come from.
+	if !contains(res.Connect.Detail, strings.TrimPrefix(srv.URL, "http://")) {
+		t.Errorf("connect detail = %q, want it to name the realm host", res.Connect.Detail)
+	}
+	if !contains(res.Connect.Detail, "anonymous") {
+		t.Errorf("connect detail = %q, want it to say the pull stays anonymous", res.Connect.Detail)
+	}
 	if res.Status != StatusOK {
 		t.Errorf("status = %q, want %q (detail %q)", res.Status, StatusOK, res.Detail)
 	}
