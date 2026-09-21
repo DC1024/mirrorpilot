@@ -477,6 +477,44 @@ a:focus-visible {
   border-bottom: 0;
 }
 
+/*
+  table-wide marks a table with enough columns to scroll sideways — the probe
+  results table carries nine. Its first column holds the mirror name, and
+  once the table scrolls that label is the first thing to leave the viewport,
+  which turns the rest into a wall of figures with no owner. Scoped to this
+  class rather than to .table, because the config and sync tables fit without
+  scrolling and would only gain a stray vertical rule.
+*/
+.table-wide th:first-child,
+.table-wide td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+/* The pinned column needs an edge, or the columns passing under it look
+   cut off rather than covered. */
+.table-wide th:first-child::after,
+.table-wide td:first-child::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+/*
+  A note inside a cell is a remark on the figure above it, not a new
+  paragraph. The default one-rem top margin doubles the height of every row
+  that carries a verdict explanation.
+*/
+.table-wide .note {
+  margin: 0.25rem 0 0;
+}
+
 .table code {
   font-family: var(--mono);
   font-size: 0.82rem;
