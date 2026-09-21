@@ -36,18 +36,6 @@
     "enabled": true
   },
   {
-    "id": "nju",
-    "name": "Nanjing University",
-    "url": "https://docker.nju.edu.cn",
-    "homepage": "https://mirror.nju.edu.cn",
-    "scope": ["dockerhub", "ghcr", "quay", "gcr"],
-    "provider": "academic",
-    "trust": "verified",
-    "note": "University mirror service; usage policy is published on the mirror site. Requests from off-campus networks are refused (HTTP 403 as of 2026-09), which the probe reports as needing credentials. Useful on campus; leave it off elsewhere.",
-    "builtin": true,
-    "enabled": false
-  },
-  {
     "id": "rat-dev",
     "name": "hub.rat.dev",
     "url": "https://hub.rat.dev",

@@ -267,7 +267,7 @@ func TestProbeBatchCoversEnabledDockerHubMirrorsOnly(t *testing.T) {
 		switch id {
 		case "ghcr-only":
 			t.Error("a mirror that does not proxy Docker Hub was measured and would be blamed for the 404")
-		case "nju", "rat-dev":
+		case "rat-dev":
 			t.Errorf("a switched-off mirror (%s) was measured", id)
 		}
 	}
@@ -370,9 +370,11 @@ func TestProbePageShowsEachLayerAndTheResolvedDigest(t *testing.T) {
 		Status:           string(probe.StatusOK),
 	})
 
-	// A mirror that was told to back off: up, but not talking to us.
+	// A mirror that was told to back off: up, but not talking to us. 1ms.run
+	// is the one with a real history of rate limiting, so it is the honest
+	// stand-in.
 	h.record(store.ProbeRecord{
-		SourceID:     "nju",
+		SourceID:     "1ms",
 		Connectivity: string(probe.StatusOK),
 		TokenStatus:  string(probe.StatusRateLimited),
 		Status:       string(probe.StatusRateLimited),
