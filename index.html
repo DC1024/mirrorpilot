@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MirrorPilot — 找到对你网络最快的容器镜像源</title>
+<meta name="description" content="自托管的单二进制面板：四层测速、生成 daemon.json、GitHub Actions 搬运、ddn-k8s 中转。开源、免费、无闭源中间件。">
+<style>
+  :root{
+    --blue-900:#042C53; --blue-800:#0C447C; --blue-700:#0F5CA8;
+    --blue-600:#185FA5; --blue-500:#378ADD; --blue-300:#85B7EB;
+    --blue-100:#B5D4F4; --blue-50:#E6F1FB; --blue-25:#F2F8FE;
+    --ink:#0E1B2C; --ink-2:#3D4C60; --ink-3:#6B7A8E;
+    --ok:#0F6E56; --ok-bg:#E1F5EE; --warn:#854F0B; --warn-bg:#FAEEDA;
+    --bad:#A32D2D; --bad-bg:#FCEBEB;
+    --line:rgba(12,68,124,.14); --line-2:rgba(12,68,124,.28);
+    --card:#FFFFFF; --page:#F5F9FE;
+    --radius:14px; --mono:ui-monospace,SFMono-Regular,"SF Mono",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--ink); background:var(--page); line-height:1.7; font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--blue-700);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+  /* ---------- header ---------- */
+  header{position:sticky;top:0;z-index:50;background:rgba(245,249,254,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .nav{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;color:var(--ink);letter-spacing:.2px}
+  .brand:hover{text-decoration:none}
+  .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--blue-600),var(--blue-800));display:flex;align-items:center;justify-content:center;flex:none}
+  .nav-links{display:flex;align-items:center;gap:26px;font-size:14.5px;color:var(--ink-2)}
+  .nav-links a{color:var(--ink-2)}
+  .nav-links a:hover{color:var(--blue-700);text-decoration:none}
+  .gh-btn{display:inline-flex;align-items:center;gap:8px;background:var(--blue-800);color:#fff !important;padding:8px 16px;border-radius:10px;font-weight:600;font-size:14px}
+  .gh-btn:hover{background:var(--blue-900);text-decoration:none !important}
+  @media(max-width:760px){.nav-links a:not(.gh-btn){display:none}}
+
+  /* ---------- hero ---------- */
+  .hero{padding:84px 0 64px;background:
+    radial-gradient(900px 420px at 78% -8%,rgba(55,138,221,.14),transparent 60%),
+    radial-gradient(700px 380px at 8% 4%,rgba(24,95,165,.10),transparent 55%)}
+  .kicker{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--blue-700);background:var(--blue-50);border:1px solid var(--line);padding:5px 14px;border-radius:999px;margin-bottom:22px}
+  .kicker .dot{width:7px;height:7px;border-radius:50%;background:var(--blue-500)}
+  h1{font-size:clamp(32px,5.2vw,52px);line-height:1.18;letter-spacing:-.5px;font-weight:800;max-width:820px}
+  h1 .accent{color:var(--blue-600)}
+  .hero p.lead{margin-top:20px;font-size:18.5px;color:var(--ink-2);max-width:720px}
+  .hero-cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px;align-items:center}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:12px;font-weight:600;font-size:15.5px;transition:.15s}
+  .btn:hover{text-decoration:none}
+  .btn-primary{background:var(--blue-700);color:#fff;box-shadow:0 1px 0 rgba(4,44,83,.25)}
+  .btn-primary:hover{background:var(--blue-800)}
+  .btn-ghost{background:#fff;color:var(--blue-800);border:1px solid var(--line-2)}
+  .btn-ghost:hover{border-color:var(--blue-500);background:var(--blue-25)}
+  .btn .kbd{font-family:var(--mono);font-size:13px;opacity:.85}
+  .hero-meta{margin-top:26px;font-size:13.5px;color:var(--ink-3);display:flex;flex-wrap:wrap;gap:8px 22px}
+  .hero-meta span{display:inline-flex;align-items:center;gap:7px}
+  .hero-meta svg{flex:none}
+
+  /* ---------- mock panel ---------- */
+  .mockband{margin:64px 0 0;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:0 20px 50px -28px rgba(12,68,124,.35);overflow:hidden}
+  .mockbar{display:flex;align-items:center;gap:7px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--blue-25)}
+  .mockbar i{width:11px;height:11px;border-radius:50%;display:block}
+  .mockbar .u{background:#F09595}.mockbar .m{background:#FAC775}.mockbar .g{background:#97C459}
+  .mockbar .addr{margin-left:12px;font-family:var(--mono);font-size:12.5px;color:var(--ink-3);background:#fff;border:1px solid var(--line);border-radius:7px;padding:3px 12px}
+  .mockbody{padding:22px}
+  .mocktitle{font-size:13px;font-weight:700;color:var(--blue-800);letter-spacing:.6px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{font-size:12px;color:var(--ink-3);font-weight:600;text-align:left;padding:8px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .sc-table{overflow-x:auto}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 11px;border-radius:999px;font-size:12.5px;font-weight:600}
+  .pill i{width:6px;height:6px;border-radius:50%;display:block}
+  .p-ok{background:var(--ok-bg);color:var(--ok)}.p-ok i{background:var(--ok)}
+  .p-bad{background:var(--bad-bg);color:var(--bad)}.p-bad i{background:var(--bad)}
+  .p-warn{background:var(--warn-bg);color:var(--warn)}.p-warn i{background:var(--warn)}
+  .p-off{background:#EEF2F7;color:var(--ink-3)}.p-off i{background:#B4B2A9}
+  td.num{font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+  .srcname{font-weight:600;color:var(--ink)}
+  .srcurl{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:block;margin-top:1px}
+  .mockfoot{margin-top:14px;font-size:12.5px;color:var(--ink-3)}
+  @media(max-width:760px){td.hide-m,th.hide-m{display:none}}
+
+  /* ---------- sections ---------- */
+  section{padding:78px 0}
+  section:nth-of-type(even){background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .sec-tag{font-size:13px;font-weight:700;letter-spacing:1.5px;color:var(--blue-600);text-transform:uppercase;margin-bottom:12px}
+  h2{font-size:clamp(24px,3.4vw,34px);letter-spacing:-.4px;font-weight:750;line-height:1.25;margin-bottom:14px}
+  .sec-lead{color:var(--ink-2);max-width:760px;font-size:16.5px}
+
+  .grid{display:grid;gap:18px;margin-top:40px}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:980px){.g4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:680px){.g4,.g3,.g2{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px}
+  .card h3{font-size:17px;font-weight:700;margin:14px 0 8px}
+  .card p{font-size:14.5px;color:var(--ink-2)}
+  .icon{width:42px;height:42px;border-radius:11px;background:var(--blue-50);display:flex;align-items:center;justify-content:center;color:var(--blue-700)}
+  .card .num{font-family:var(--mono);font-size:12px;color:var(--blue-500);font-weight:700;letter-spacing:1px}
+
+  .step{display:flex;gap:18px;align-items:flex-start}
+  .step .n{flex:none;width:34px;height:34px;border-radius:50%;background:var(--blue-800);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;margin-top:2px}
+
+  pre.code{background:#0B1E33;color:#CDE3F8;border-radius:12px;padding:20px 22px;font-family:var(--mono);font-size:13.5px;line-height:1.75;overflow-x:auto;position:relative}
+  pre.code .c{color:#5F87AC}
+  pre.code .k{color:#8FD0FF}
+  pre.code .s{color:#A8E6B8}
+  .code-label{position:absolute;top:10px;right:14px;font-size:11px;color:#5F87AC;font-family:var(--mono)}
+
+  .not-list{display:grid;gap:14px;margin-top:36px}
+  .not-item{display:flex;gap:14px;background:#fff;border:1px solid var(--line);border-left:3px solid var(--blue-500);border-radius:12px;padding:18px 20px}
+  .not-item b{display:block;font-size:15px;margin-bottom:3px}
+  .not-item span{font-size:14px;color:var(--ink-2)}
+  .not-x{flex:none;width:26px;height:26px;border-radius:8px;background:var(--blue-50);color:var(--blue-700);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;margin-top:2px}
+
+  .quoteband{margin-top:40px;border-left:4px solid var(--blue-600);background:var(--blue-25);border-radius:0 12px 12px 0;padding:20px 26px;font-size:16.5px;color:var(--blue-900);font-weight:500}
+
+  .verdict{display:grid;gap:12px;margin-top:36px}
+  .v-row{display:grid;grid-template-columns:190px 1fr;gap:16px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 20px}
+  @media(max-width:680px){.v-row{grid-template-columns:1fr}}
+  .v-src{font-weight:700}
+  .v-src small{display:block;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);font-weight:400;margin-top:2px}
+  .v-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-size:12.5px;padding:3px 12px;border-radius:999px;font-weight:600;font-family:var(--mono)}
+  .chip.ok{background:var(--ok-bg);color:var(--ok)}
+  .chip.warn{background:var(--warn-bg);color:var(--warn)}
+  .chip.bad{background:var(--bad-bg);color:var(--bad)}
+  .chip.off{background:#EEF2F7;color:var(--ink-3)}
+
+  .deploy-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:40px}
+  @media(max-width:860px){.deploy-cards{grid-template-columns:1fr}}
+  .dcard{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px}
+  .dcard h3{font-size:16.5px;margin-bottom:6px}
+  .dcard .sub{font-size:13px;color:var(--ink-3);margin-bottom:14px}
+  .dcard p{font-size:14px;color:var(--ink-2)}
+
+  footer{background:#0B1E33;color:#9FB8D4;padding:52px 0 40px;font-size:14px}
+  footer .frow{display:flex;flex-wrap:wrap;gap:28px;justify-content:space-between;align-items:flex-start}
+  footer a{color:#CDE3F8}
+  footer a:hover{color:#fff}
+  footer .fbrand{display:flex;align-items:center;gap:10px;font-weight:700;color:#fff;font-size:17px;margin-bottom:10px}
+  footer .cols{display:flex;gap:56px;flex-wrap:wrap}
+  footer h4{color:#fff;font-size:13px;letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;opacity:.75}
+  footer ul{list-style:none;display:grid;gap:8px}
+  .fbottom{margin-top:38px;padding-top:22px;border-top:1px solid rgba(205,227,248,.15);font-size:12.5px;color:#5F87AC;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#">
+      <span class="logo">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6a6 6 0 1 0 6 6"/><circle cx="12" cy="12" r="1.6" fill="#fff" stroke="none"/></svg>
+      </span>
+      MirrorPilot
+    </a>
+    <nav class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#honest">边界</a>
+      <a href="#results">实测</a>
+      <a href="#quickstart">快速开始</a>
+      <a href="https://github.com/DC1024/mirrorpilot" class="gh-btn" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div class="kicker"><span class="dot"></span>开源 · MIT · 单二进制 · 无闭源中间件</div>
+    <h1>找到对你网络<span class="accent">最快</span>的容器镜像源，<br>再把拉不动的镜像弄回家</h1>
+    <p class="lead">MirrorPilot 是一个自托管的单二进制面板：对镜像源做四层真实测速、生成 <code style="font-family:var(--mono);font-size:.9em">daemon.json</code>、用 GitHub Actions 把 ghcr.io 的镜像搬进你自己的仓库、接入 ddn-k8s 中转。它不坐在你的拉取路径上，也不偷偷改你的配置。</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="#quickstart">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16"/></svg>
+        五分钟部署
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/DC1024/mirrorpilot" target="_blank" rel="noopener">查看源码 ↗</a>
+    </div>
+    <div class="hero-meta">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F6E56" stroke-width="2.4" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>纯 Go，无 CGO</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F6E56" stroke-width="2.4" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>linux/amd64 + arm64</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F6E56" stroke-width="2.4" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>中英双语界面</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F6E56" stroke-width="2.4" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>服务端渲染，零构建</span>
+    </div>
+
+    <div class="mockband">
+      <div class="mockbar"><i class="u"></i><i class="m"></i><i class="g"></i><span class="addr">https://your-lan:8080/probe</span></div>
+      <div class="mockbody">
+        <div class="mocktitle">SPEED TEST — 四层测速，逐层归因</div>
+        <div class="sc-table">
+        <table>
+          <thead><tr>
+            <th>镜像源</th><th>结果</th><th>连通</th><th>Token</th><th>Manifest</th><th class="hide-m">吞吐</th><th class="hide-m">Digest</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="srcname">1Panel</span><span class="srcurl">docker.1panel.live</span></td>
+              <td><span class="pill p-ok"><i></i>ok</span></td><td class="num">1408 ms</td><td class="num">—</td><td class="num">529 ms</td><td class="num hide-m">2.0 MB/s</td><td class="num hide-m">294b68…</td>
+            </tr>
+            <tr>
+              <td><span class="srcname">DaoCloud</span><span class="srcurl">docker.m.daocloud.io</span></td>
+              <td><span class="pill p-ok"><i></i>ok</span></td><td class="num">156 ms</td><td class="num">96 ms</td><td class="num">34 ms</td><td class="num hide-m">651.5 kB/s</td><td class="num hide-m">294b68…</td>
+            </tr>
+            <tr>
+              <td><span class="srcname">1ms.run</span><span class="srcurl">docker.1ms.run</span></td>
+              <td><span class="pill p-warn"><i></i>failed</span></td><td class="num">309 ms</td><td class="num">114 ms</td><td class="num">110 ms</td><td class="num hide-m">中断</td><td class="num hide-m">294b68…</td>
+            </tr>
+            <tr>
+              <td><span class="srcname">南京大学</span><span class="srcurl">docker.nju.edu.cn</span></td>
+              <td><span class="pill p-bad"><i></i>需要凭据</span></td><td class="num">111 ms</td><td class="num">—</td><td class="num">35 ms</td><td class="num hide-m">—</td><td class="num hide-m">—</td>
+            </tr>
+            <tr>
+              <td><span class="srcname">上海交大</span><span class="srcurl">mirrors.sjtug.sjtu.edu.cn</span></td>
+              <td><span class="pill p-off"><i></i>unreachable</span></td><td class="num">104 ms</td><td class="num">—</td><td class="num">—</td><td class="num hide-m">—</td><td class="num hide-m">—</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+        <div class="mockfoot">↑ 2026-09 真实生产数据。每层单独归因：429 是限流不是挂了；被 8 MiB 上限截断的读取报「无法校验」而不是「不匹配」；横杠不是零。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-tag">What it does</div>
+    <h2>四个页面，回答四个不同的问题</h2>
+    <p class="sec-lead">「哪个镜像源最快」和「这个镜像到底怎么拉」是两个问题——障碍的形状取决于镜像住在哪里。MirrorPilot 把它们分开回答。</p>
+    <div class="grid g2">
+      <div class="card step">
+        <span class="n">1</span>
+        <div>
+          <h3>测速（/probe）—— 哪个镜像源对我的网络最快？</h3>
+          <p>四层分离测量：<b>连通</b>（GET /v2/）、<b>Token</b>（匿名令牌，按 registry 点名的 realm 去取，而不是瞎猜端点）、<b>Manifest</b>（首字节 + 本地现算摘要）、<b>吞吐</b>（真拉一个 blob，上限 8 MiB）。知道<b>哪一层</b>挂了，比一片红有用得多。</p>
+        </div>
+      </div>
+      <div class="card step">
+        <span class="n">2</span>
+        <div>
+          <h3>配置（/config）—— daemon.json 怎么写？</h3>
+          <p>按实测排名生成 <code style="font-family:var(--mono);font-size:.9em">registry-mirrors</code> 顺序（顺序本身就是功能），也生成 containerd 的 <code style="font-family:var(--mono);font-size:.9em">hosts.toml</code>。粘贴你已有的 daemon.json，它做<b>合并</b>而不是替换；带注释或尾逗号的文档会被<b>拒绝</b>而不是静默修正——Docker 也不收。</p>
+        </div>
+      </div>
+      <div class="card step">
+        <span class="n">3</span>
+        <div>
+          <h3>搬运（/sync）—— ghcr.io 拉不动怎么办？</h3>
+          <p><code style="font-family:var(--mono);font-size:.9em">registry-mirrors</code> 只对 Docker Hub 生效。对 ghcr.io / quay.io / gcr.io，正道是借 GitHub Actions 的网络：生成 workflow、写好仓库 secret、一键 dispatch。页面展示的是<b>运行日志</b>，而不是在按钮上假装成功。</p>
+        </div>
+      </div>
+      <div class="card step">
+        <span class="n">4</span>
+        <div>
+          <h3>中转（/config 下半页）—— 连 Actions 都不用等呢？</h3>
+          <p>中转不是镜像源——镜像源在上游同一路径讲 registry 协议，中转把<b>整条原始地址当路径</b>。内置华为云 SWR 公益 ddn-k8s 的地址风格，设一次端点，任何镜像地址变成一条可直接 pull 的命令。默认关闭，由你决定开不开。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid g4">
+      <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div><div class="num" style="margin-top:12px">BACKGROUND</div><h3>后台自动测速</h3><p>每 30 分钟把启用的源全部重测一遍，排名不会悄悄过时。不需要解锁主密码——测速是公开的 registry 读。</p></div>
+      <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="num" style="margin-top:12px">CRYPTO</div><h3>凭据加密落盘</h3><p>Argon2id 派生密钥 + AES-256-GCM，密文绑定用途（AAD）。GitHub token 的密文挪到别处也解不开。</p></div>
+      <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div><div class="num" style="margin-top:12px">LOCKED</div><h3>重启后锁定</h3><p>派生密钥只活在进程内存。容器重启后，必须输入一次密码才能读任何已存凭据——这是设计，不是缺陷。</p></div>
+      <div class="card"><div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7V5h16v2M9 20h6M12 5v15"/><path d="M4 7c0 4 3 7 8 7s8-3 8-7"/></svg></div><div class="num" style="margin-top:12px">HONEST</div><h3>摘要从不采信</h3><p>blob 摘要永远由本地对收到的字节现算，绝不读响应头。指控镜像源发坏内容之前，先排除是我们自己要少了。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="honest">
+  <div class="wrap">
+    <div class="sec-tag">What it is NOT</div>
+    <h2>先说清楚它不是什么</h2>
+    <p class="sec-lead">把边界说清楚，替你省时间。</p>
+    <div class="not-list">
+      <div class="not-item"><span class="not-x">✕</span><div><b>它不是 registry 代理</b><span>不坐在你的拉取路径上。镜像源答不了的镜像，它自己也答不了——代理是放大器，不是发生器。</span></div></div>
+      <div class="not-item"><span class="not-x">✕</span><div><b>它不是 KSpeeder 的直接替代品</b><span>KSpeeder 把第三方源捆绑在自己的端点后面。MirrorPilot 测量这些源，并帮你把镜像搬进你自己控制的仓库。</span></div></div>
+      <div class="not-item"><span class="not-x">✕</span><div><b>它不会背着你改 daemon.json</b><span>只生成配置和命令，你看完再决定跑不跑。你的系统，你的手。</span></div></div>
+      <div class="not-item"><span class="not-x">✕</span><div><b>它不是闭源中间件</b><span>没有付费档位，没有「免费节点」转卖给你。MIT 协议，代码全在。</span></div></div>
+    </div>
+    <div class="quoteband">「你没有任何一台能稳定出海的机器」——这个约束排除了 Harbor / Zot 那类 pull-through cache（它自己得先够到上游），也塑造了这里的每一个设计决定。</div>
+  </div>
+</section>
+
+<section id="results">
+  <div class="wrap">
+    <div class="sec-tag">Field data</div>
+    <h2>实测结果长什么样</h2>
+    <p class="sec-lead">2026-09 在国内生产环境真实测得。引擎遵循 registry 的鉴权协议：401 带 realm 是匿名的开场白，没有 realm 的拒绝才被如实报成「需要凭据」。</p>
+    <div class="verdict">
+      <div class="v-row">
+        <div class="v-src">DaoCloud<small>docker.m.daocloud.io</small></div>
+        <div class="v-chips"><span class="chip ok">连通 156ms</span><span class="chip ok">token 96ms</span><span class="chip ok">manifest 34ms</span><span class="chip ok">651.5 kB/s</span></div>
+      </div>
+      <div class="v-row">
+        <div class="v-src">1Panel<small>docker.1panel.live</small></div>
+        <div class="v-chips"><span class="chip ok">连通 1408ms</span><span class="chip ok">免 token</span><span class="chip ok">manifest 529ms</span><span class="chip ok">2.0 MB/s</span></div>
+      </div>
+      <div class="v-row">
+        <div class="v-src">1ms.run<small>docker.1ms.run</small></div>
+        <div class="v-chips"><span class="chip ok">连通 / token / manifest 全通</span><span class="chip warn">吞吐偶发中断 · 如实记录</span></div>
+      </div>
+      <div class="v-row">
+        <div class="v-src">南京大学<small>docker.nju.edu.cn</small></div>
+        <div class="v-chips"><span class="chip bad">校外 403 · 需要凭据（真实）</span></div>
+      </div>
+      <div class="v-row">
+        <div class="v-src">USTC<small>docker.mirrors.ustc.edu.cn</small></div>
+        <div class="v-chips"><span class="chip off">域名已 NXDOMAIN · 服务收回</span></div>
+      </div>
+    </div>
+    <p style="margin-top:22px;font-size:13.5px;color:var(--ink-3)">同一批测出的源可以诚实对比：每次运行都记录 manifest 解析到的 digest——tag 可能命中的是缓存，同一个 tag 在两个源上未必是同一份字节。</p>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <div class="sec-tag">Quick start</div>
+    <h2>五分钟跑起来</h2>
+    <p class="sec-lead">两条命令。首次打开网页时创建面板账号——没有默认密码，磁盘上也不预写任何东西。</p>
+    <div class="grid g2" style="margin-top:32px">
+      <div>
+        <pre class="code"><span class="code-label">bash</span><span class="c"># 拉起来</span>
+git clone https://github.com/DC1024/mirrorpilot.git
+cd mirrorpilot
+docker compose up -d
+
+<span class="c"># 打开面板，创建账号</span>
+<span class="k">open</span> http://&lt;host&gt;:8080</pre>
+        <p style="margin-top:14px;font-size:14px;color:var(--ink-3)">或者直接用镜像：<br><code style="font-family:var(--mono);font-size:13px">docker pull ghcr.io/dc1024/mirrorpilot:latest</code></p>
+      </div>
+      <div>
+        <pre class="code"><span class="code-label">daemon.json（生成结果示例）</span>{
+  <span class="k">"registry-mirrors"</span>: [
+    <span class="s">"https://docker.1panel.live"</span>,
+    <span class="s">"https://docker.m.daocloud.io"</span>,
+    <span class="s">"https://docker.1ms.run"</span>
+  ],
+  <span class="k">"insecure-registries"</span>: [<span class="s">"192.168.43.0/24"</span>],
+  <span class="k">"log-driver"</span>: <span class="s">"json-file"</span>
+}</pre>
+        <p style="margin-top:14px;font-size:14px;color:var(--ink-3)">↑ 排名来自你自己的实测，不是别人榜单的转发。已有配置粘贴进去做合并，不属于它的字段原样保留。</p>
+      </div>
+    </div>
+
+    <div class="deploy-cards">
+      <div class="dcard"><h3>本机 / NAS</h3><div class="sub">docker compose</div><p>数据落在 <code style="font-family:var(--mono);font-size:12.5px">/data</code> 卷：SQLite、加密凭据、测速历史。重启不丢。</p></div>
+      <div class="dcard"><h3>公网？请套 TLS</h3><div class="sub">Caddy 一行 tls internal</div><p>面板保管你的 GitHub / 阿里云凭据，不要裸 HTTP 上公网。README 里有完整的 Caddy 配置（含 IP 直访的 default_sni 坑）。</p></div>
+      <div class="dcard"><h3>忘记主密码</h3><div class="sub">-reset，推倒重来</div><p>没有重置链接，也没有恢复密钥——这正是它防住「偷走 /data 卷」的原因。镜像源、设置、测速历史都会保留。</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="frow">
+      <div style="max-width:420px">
+        <div class="fbrand">
+          <span class="logo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6a6 6 0 1 0 6 6"/><circle cx="12" cy="12" r="1.6" fill="#fff" stroke="none"/></svg></span>
+          MirrorPilot
+        </div>
+        <p style="font-size:13.5px;line-height:1.7">自托管容器镜像源测速与配置生成面板。测量、生成、搬运——都是生成文本，动手的永远是你。</p>
+      </div>
+      <div class="cols">
+        <div>
+          <h4>项目</h4>
+          <ul>
+            <li><a href="https://github.com/DC1024/mirrorpilot" target="_blank" rel="noopener">GitHub 仓库</a></li>
+            <li><a href="https://github.com/DC1024/mirrorpilot/releases" target="_blank" rel="noopener">Releases</a></li>
+            <li><a href="https://github.com/DC1024/mirrorpilot/blob/main/README.zh-CN.md" target="_blank" rel="noopener">中文文档</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>镜像</h4>
+          <ul>
+            <li><a href="https://github.com/DC1024/mirrorpilot/pkgs/container/mirrorpilot" target="_blank" rel="noopener">ghcr.io/dc1024/mirrorpilot</a></li>
+            <li>latest / v0.2.x</li>
+            <li>linux/amd64 · arm64</li>
+          </ul>
+        </div>
+        <div>
+          <h4>协议</h4>
+          <ul>
+            <li><a href="https://github.com/DC1024/mirrorpilot/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+            <li><a href="https://github.com/DC1024/mirrorpilot/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">贡献指南</a></li>
+            <li><a href="https://github.com/DC1024/mirrorpilot/issues/new?template=new_mirror.yml" target="_blank" rel="noopener">提交新镜像源</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="fbottom">
+      <span>© 2026 DC1024 · MirrorPilot — MIT Licensed</span>
+      <span>A proxy is an amplifier, not a generator.</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
