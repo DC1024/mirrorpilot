@@ -43,7 +43,7 @@
     "scope": ["dockerhub", "ghcr", "quay", "gcr"],
     "provider": "academic",
     "trust": "verified",
-    "note": "University mirror service; usage policy is published on the mirror site.",
+    "note": "University mirror service; usage policy is published on the mirror site. Requests from off-campus networks are refused (HTTP 403 as of 2026-09), which the probe reports as needing credentials.",
     "builtin": true,
     "enabled": true
   },
@@ -67,7 +67,7 @@
     "scope": ["dockerhub"],
     "provider": "academic",
     "trust": "verified",
-    "note": "Long-standing university mirror. Docker coverage has been restricted at times; check the mirror's own page before relying on it.",
+    "note": "The public Docker mirror was restricted to the university's own users and its domain no longer resolves (NXDOMAIN as of 2026-09). Kept listed so the history is explainable; leave it disabled.",
     "builtin": true,
     "enabled": false
   },
