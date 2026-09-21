@@ -103,7 +103,7 @@
     "scope": ["dockerhub"],
     "provider": "community",
     "trust": "unknown",
-    "note": "Little public information about the operator. Listed because people use it, not because it is recommended.",
+    "note": "Little public information about the operator. It answers by redirecting to docker.1ms.run, so it behaves like that mirror and stands or falls with it. Listed because people use it, not because it is recommended.",
     "builtin": true,
     "enabled": false
   },
