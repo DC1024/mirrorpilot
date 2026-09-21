@@ -156,18 +156,19 @@ func (p *Prober) Probe(ctx context.Context, src mirror.Source) Result {
 	ctx, cancel := context.WithTimeout(ctx, p.opts.Timeout)
 	defer cancel()
 
-	res.Connect = p.checkConnectivity(ctx, base)
-	if !res.Connect.Status.Alive() {
+	connect, challenge := p.checkConnectivity(ctx, base)
+	res.Connect = connect
+	if !connect.Status.Alive() {
 		return verdict(res)
 	}
 	// Being told to back off and pressing on anyway is how a client earns a
 	// ban. The remaining layers are skipped, and the verdict still reports the
 	// mirror as alive-but-throttling.
-	if res.Connect.Status == StatusRateLimited {
+	if connect.Status == StatusRateLimited {
 		return verdict(res)
 	}
 
-	token, tokenLayer := p.fetchToken(ctx, base, src)
+	token, tokenLayer := p.fetchToken(ctx, src, challenge)
 	res.Token = tokenLayer
 	if tokenLayer.Status == StatusRateLimited {
 		return verdict(res)
@@ -236,13 +237,15 @@ func verdict(res Result) Result {
 	return res
 }
 
-// checkConnectivity is layer 1.
-func (p *Prober) checkConnectivity(ctx context.Context, base string) Layer {
+// checkConnectivity is layer 1. A 401 or 403 is alive — the host is up and
+// speaking the protocol — and its WWW-Authenticate header, when present, is
+// carried out as the challenge the token layer will follow.
+func (p *Prober) checkConnectivity(ctx context.Context, base string) (Layer, authChallenge) {
 	start := time.Now()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v2/", nil)
 	if err != nil {
-		return Layer{Status: StatusFailed, Detail: "malformed mirror URL"}
+		return Layer{Status: StatusFailed, Detail: "malformed mirror URL"}, authChallenge{}
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", p.opts.UserAgent)
@@ -250,39 +253,96 @@ func (p *Prober) checkConnectivity(ctx context.Context, base string) Layer {
 	resp, err := p.client.Do(req)
 	elapsed := time.Since(start)
 	if err != nil {
-		return Layer{Status: StatusUnreachable, Duration: elapsed, Detail: reason(err)}
+		return Layer{Status: StatusUnreachable, Duration: elapsed, Detail: reason(err)}, authChallenge{}
 	}
 	defer closeBody(resp)
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return Layer{Status: StatusOK, Duration: elapsed}
+		return Layer{Status: StatusOK, Duration: elapsed}, authChallenge{}
 	case http.StatusUnauthorized, http.StatusForbidden:
 		// Still alive: the host is up and speaking the protocol, which is all
 		// layer 1 asks. Whether we may pull from it is layer 3's problem.
-		return Layer{Status: StatusUnauthorized, Duration: elapsed, Detail: "registry requires authentication"}
+		return Layer{Status: StatusUnauthorized, Duration: elapsed,
+			Detail: "registry requires authentication"},
+			parseChallenge(resp.Header.Get("WWW-Authenticate"))
 	case http.StatusTooManyRequests:
-		return Layer{Status: StatusRateLimited, Duration: elapsed, Detail: retryAfter(resp)}
+		return Layer{Status: StatusRateLimited, Duration: elapsed, Detail: retryAfter(resp)}, authChallenge{}
 	default:
 		return Layer{Status: StatusFailed, Duration: elapsed,
-			Detail: fmt.Sprintf("HTTP %d from /v2/", resp.StatusCode)}
+			Detail: fmt.Sprintf("HTTP %d from /v2/", resp.StatusCode)}, authChallenge{}
 	}
+}
+
+// authChallenge is what a registry's 401 advertises about where tokens come
+// from. The zero value means no challenge was advertised.
+type authChallenge struct {
+	realm   string
+	service string
+}
+
+// parseChallenge reads the Bearer parameters out of a WWW-Authenticate value.
+//
+// The header is a challenge per RFC 6750: a scheme plus comma-separated
+// key=value pairs, values optionally quoted. Only what the token request needs
+// is kept — the realm to ask and the service to name there — and anything
+// unreadable yields the zero value, which the caller treats as "no challenge".
+// A quoted value containing a comma would be split wrongly; real challenges do
+// not put commas in realms, and a misparse here degrades to probing without a
+// token, which the manifest layer reports honestly if it then fails.
+func parseChallenge(header string) authChallenge {
+	const scheme = "bearer "
+	if len(header) < len(scheme) || !strings.EqualFold(header[:len(scheme)], scheme) {
+		return authChallenge{}
+	}
+
+	var ch authChallenge
+	for _, param := range strings.Split(header[len(scheme):], ",") {
+		key, value, ok := strings.Cut(param, "=")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(strings.TrimSpace(value), `"`)
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "realm":
+			ch.realm = value
+		case "service":
+			ch.service = value
+		}
+	}
+	return ch
 }
 
 // fetchToken is layer 2.
 //
-// A mirror that does not implement the endpoint yields Skipped rather than a
-// failure: plenty of registries serve anonymous pulls without one, and calling
-// that broken would slander a working mirror.
-func (p *Prober) fetchToken(ctx context.Context, base string, src mirror.Source) (string, Layer) {
+// The endpoint comes from the registry, not from us: the challenge on the 401
+// names the realm that issues tokens, and that realm frequently lives
+// somewhere other than the mirror itself — DaoCloud's sits on m.daocloud.io
+// while the mirror is docker.m.daocloud.io, and a proxy may point at upstream's
+// auth altogether. Asking the mirror for /token because it seems like the
+// natural place is how a mirror that answers anonymous pulls all day gets
+// reported as needing credentials.
+//
+// No challenge, no token request: a registry that answered 200 on /v2/ asked
+// for nothing, and inventing a token endpoint it never mentioned is guessing.
+// Plenty of registries serve anonymous pulls without one.
+func (p *Prober) fetchToken(ctx context.Context, src mirror.Source, challenge authChallenge) (string, Layer) {
+	if challenge.realm == "" {
+		return "", Layer{Status: StatusSkipped, Detail: "registry did not request a token"}
+	}
+	if u, err := url.Parse(challenge.realm); err != nil ||
+		(u.Scheme != "http" && u.Scheme != "https") {
+		return "", Layer{Status: StatusSkipped, Detail: "token realm was not a usable URL"}
+	}
+
 	query := url.Values{}
-	query.Set("service", src.Host())
+	query.Set("service", firstNonEmpty(challenge.service, src.Host()))
 	query.Set("scope", "repository:"+p.opts.Target.Repository+":pull")
 
 	start := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/token?"+query.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, challenge.realm+"?"+query.Encode(), nil)
 	if err != nil {
-		return "", Layer{Status: StatusFailed, Detail: "malformed mirror URL"}
+		return "", Layer{Status: StatusFailed, Detail: "malformed token URL"}
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", p.opts.UserAgent)

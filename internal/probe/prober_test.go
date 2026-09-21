@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -40,14 +41,28 @@ type stub struct {
 	connect      int
 	connectRetry string
 
-	// token is the status for GET /token. Zero means 404 — a mirror with no
-	// token endpoint, which is a legitimate, working configuration.
+	// challengePath, when set, makes /v2/ answer with a WWW-Authenticate
+	// Bearer challenge whose realm is this path on the stub's own host — the
+	// same shape as a real registry, whose token endpoint is usually elsewhere
+	// than the mirror path itself. challengeHost overrides the host in that
+	// realm, which is how a test points it at a server that is not listening.
+	challengePath string
+	challengeHost string
+
+	// token is the status for GET <tokenPath>. Zero means 404 — a mirror with
+	// no token endpoint, which is a legitimate, working configuration.
 	token     int
 	tokenBody string
+	// tokenPath is where the token endpoint lives. Defaults to /token.
+	tokenPath string
 
 	// manifests is keyed by reference, which for a digest-pinned fetch is the
 	// digest itself.
 	manifests map[string]stubManifest
+
+	// requireBearer, when set, makes every manifest answer 401 unless the
+	// request carries exactly this bearer token.
+	requireBearer string
 
 	blobStatus int
 	blobRetry  string
@@ -115,6 +130,10 @@ func (l *requestLog) peakConcurrent() int {
 func newStub(t *testing.T, s stub) (*httptest.Server, mirror.Source, *requestLog) {
 	t.Helper()
 
+	if s.tokenPath == "" {
+		s.tokenPath = "/token"
+	}
+
 	log := &requestLog{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -140,9 +159,14 @@ func serveStub(w http.ResponseWriter, r *http.Request, s stub) {
 		if s.connectRetry != "" {
 			w.Header().Set("Retry-After", s.connectRetry)
 		}
+		if s.challengePath != "" {
+			realmHost := orString(s.challengeHost, r.Host)
+			w.Header().Set("WWW-Authenticate",
+				fmt.Sprintf(`Bearer realm="http://%s%s", service="stub"`, realmHost, s.challengePath))
+		}
 		w.WriteHeader(orStatus(s.connect, http.StatusOK))
 		return
-	case "/token":
+	case s.tokenPath:
 		if status := orStatus(s.token, http.StatusNotFound); status != http.StatusOK {
 			w.WriteHeader(status)
 			return
@@ -157,7 +181,7 @@ func serveStub(w http.ResponseWriter, r *http.Request, s stub) {
 	}
 
 	if ref, ok := afterMarker(r.URL.Path, "/manifests/"); ok {
-		serveManifest(w, ref, s)
+		serveManifest(w, r, ref, s)
 		return
 	}
 	if dig, ok := afterMarker(r.URL.Path, "/blobs/"); ok {
@@ -167,7 +191,11 @@ func serveStub(w http.ResponseWriter, r *http.Request, s stub) {
 	w.WriteHeader(http.StatusNotFound)
 }
 
-func serveManifest(w http.ResponseWriter, ref string, s stub) {
+func serveManifest(w http.ResponseWriter, r *http.Request, ref string, s stub) {
+	if s.requireBearer != "" && r.Header.Get("Authorization") != "Bearer "+s.requireBearer {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	m, ok := s.manifests[ref]
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
@@ -399,6 +427,93 @@ func TestProbeConnectUnauthorizedIsStillAlive(t *testing.T) {
 
 // --- layer 2: token ----------------------------------------------------
 
+// The challenge-following tests all use the same shape: a mirror that answers
+// 401 on /v2/ and advertises its token endpoint somewhere other than /token —
+// which is what real mirrors do, and what the engine used to get wrong.
+
+func TestProbeFetchesTheTokenFromTheAdvertisedRealm(t *testing.T) {
+	blob := bytes.Repeat([]byte("x"), 1024)
+	child := mustJSON(t, testImage{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Layers:    []testDescriptor{{Digest: digestOf(blob), Size: int64(len(blob))}},
+	})
+
+	_, src, log := newStub(t, stub{
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		tokenPath:     "/auth/token",
+		token:         http.StatusOK,
+		manifests:     map[string]stubManifest{"latest": {body: child}},
+		blobs:         map[string][]byte{digestOf(blob): blob},
+		// The manifest is only served to the token the realm issued, so this
+		// test passes only if the token really made it onto the request.
+		requireBearer: "stub-token",
+	})
+
+	res := newProber(t, nil, nil).Probe(t.Context(), src)
+
+	if res.Token.Status != StatusOK {
+		t.Errorf("token = %q (%q), want %q", res.Token.Status, res.Token.Detail, StatusOK)
+	}
+	if res.Status != StatusOK {
+		t.Fatalf("status = %q, want %q (detail %q)", res.Status, StatusOK, res.Detail)
+	}
+	if !log.sawPath("/auth/token") {
+		t.Errorf("the advertised realm was never asked for a token: %v", log.paths)
+	}
+	if log.sawPath("/token") {
+		t.Errorf("the invented /token endpoint was still asked: %v", log.paths)
+	}
+}
+
+func TestProbeWithoutAChallengeDoesNotAskForAToken(t *testing.T) {
+	blob := bytes.Repeat([]byte("y"), 2048)
+	child := mustJSON(t, testImage{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Layers:    []testDescriptor{{Digest: digestOf(blob), Size: int64(len(blob))}},
+	})
+
+	// /v2/ answers 200 — no challenge — yet a /token endpoint exists. Asking
+	// it anyway is a guess, and a 401 from a guess used to read as the mirror
+	// demanding credentials.
+	_, src, log := newStub(t, stub{
+		manifests: map[string]stubManifest{"latest": {body: child}},
+		blobs:     map[string][]byte{digestOf(blob): blob},
+	})
+
+	res := newProber(t, nil, nil).Probe(t.Context(), src)
+
+	if res.Token.Status != StatusSkipped {
+		t.Errorf("token = %q, want %q — nobody asked for a token", res.Token.Status, StatusSkipped)
+	}
+	if log.sawPath("/token") {
+		t.Errorf("a token was requested although no challenge was advertised: %v", log.paths)
+	}
+	if res.Status != StatusOK {
+		t.Fatalf("status = %q, want %q (detail %q)", res.Status, StatusOK, res.Detail)
+	}
+}
+
+func TestProbeUnreachableRealmIsReportedAtTheTokenLayer(t *testing.T) {
+	// A realm that points at a server which has stopped: the challenge was
+	// advertised honestly, but nothing answers there.
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadHost := dead.URL
+	dead.Close()
+
+	_, src, _ := newStub(t, stub{
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		challengeHost: strings.TrimPrefix(deadHost, "http://"),
+	})
+
+	res := newProber(t, nil, nil).Probe(t.Context(), src)
+
+	if res.Token.Status != StatusUnreachable {
+		t.Errorf("token = %q, want %q", res.Token.Status, StatusUnreachable)
+	}
+}
+
 func TestProbeTokenEndpointMissingIsSkippedNotFailed(t *testing.T) {
 	blob := bytes.Repeat([]byte("y"), 2048)
 	child := mustJSON(t, testImage{
@@ -407,9 +522,12 @@ func TestProbeTokenEndpointMissingIsSkippedNotFailed(t *testing.T) {
 	})
 
 	_, src, _ := newStub(t, stub{
-		token:     http.StatusNotFound,
-		manifests: map[string]stubManifest{"latest": {body: child}},
-		blobs:     map[string][]byte{digestOf(blob): blob},
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		tokenPath:     "/auth/token",
+		token:         http.StatusNotFound,
+		manifests:     map[string]stubManifest{"latest": {body: child}},
+		blobs:         map[string][]byte{digestOf(blob): blob},
 	})
 
 	res := newProber(t, nil, nil).Probe(t.Context(), src)
@@ -426,7 +544,12 @@ func TestProbeTokenEndpointMissingIsSkippedNotFailed(t *testing.T) {
 }
 
 func TestProbeRateLimitedAtToken(t *testing.T) {
-	_, src, log := newStub(t, stub{token: http.StatusTooManyRequests})
+	_, src, log := newStub(t, stub{
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		tokenPath:     "/auth/token",
+		token:         http.StatusTooManyRequests,
+	})
 
 	res := newProber(t, nil, nil).Probe(t.Context(), src)
 
@@ -436,14 +559,20 @@ func TestProbeRateLimitedAtToken(t *testing.T) {
 	if res.Status != StatusRateLimited {
 		t.Errorf("status = %q, want %q", res.Status, StatusRateLimited)
 	}
-	// /v2/ and /token, and nothing else.
+	// The challenge and the token, and nothing else.
 	if got := log.count(); got != 2 {
 		t.Errorf("made %d requests, want 2: %v", got, log.paths)
 	}
 }
 
 func TestProbeTokenResponseWithoutTokenFails(t *testing.T) {
-	_, src, _ := newStub(t, stub{token: http.StatusOK, tokenBody: `{"expires_in":300}`})
+	_, src, _ := newStub(t, stub{
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		tokenPath:     "/auth/token",
+		token:         http.StatusOK,
+		tokenBody:     `{"expires_in":300}`,
+	})
 
 	res := newProber(t, nil, nil).Probe(t.Context(), src)
 
@@ -463,16 +592,69 @@ func TestProbeAcceptsAccessTokenSpelling(t *testing.T) {
 	})
 
 	_, src, _ := newStub(t, stub{
-		token:     http.StatusOK,
-		tokenBody: `{"access_token":"other-spelling"}`, //nolint:gosec // test fixture
-		manifests: map[string]stubManifest{"latest": {body: child}},
-		blobs:     map[string][]byte{digestOf(blob): blob},
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		tokenPath:     "/auth/token",
+		token:         http.StatusOK,
+		tokenBody:     `{"access_token":"other-spelling"}`, //nolint:gosec // test fixture
+		manifests:     map[string]stubManifest{"latest": {body: child}},
+		blobs:         map[string][]byte{digestOf(blob): blob},
 	})
 
 	res := newProber(t, nil, nil).Probe(t.Context(), src)
 
 	if res.Token.Status != StatusOK {
 		t.Errorf("token = %q, want %q (detail %q)", res.Token.Status, StatusOK, res.Token.Detail)
+	}
+}
+
+func TestParseChallenge(t *testing.T) {
+	cases := map[string]struct {
+		header  string
+		realm   string
+		service string
+	}{
+		"quoted values": {
+			`Bearer realm="https://m.daocloud.io/auth/token",service="docker.m.daocloud.io"`,
+			"https://m.daocloud.io/auth/token", "docker.m.daocloud.io",
+		},
+		"spaces after commas": {
+			`Bearer realm="https://r/token", service="svc", scope="repository:x:pull"`,
+			"https://r/token", "svc",
+		},
+		"unquoted values": {
+			`Bearer realm=https://r/token,service=svc`,
+			"https://r/token", "svc",
+		},
+		"no service": {
+			`Bearer realm="https://r/token"`,
+			"https://r/token", "",
+		},
+		"lowercase scheme": {
+			`bearer realm="https://r/token"`,
+			"https://r/token", "",
+		},
+		"not a bearer challenge": {
+			`Basic realm="https://r/"`,
+			"", "",
+		},
+		"garbage": {
+			"anything at all",
+			"", "",
+		},
+		"empty": {
+			"",
+			"", "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := parseChallenge(tc.header)
+			if got.realm != tc.realm || got.service != tc.service {
+				t.Errorf("parseChallenge = %+v, want realm %q service %q", got, tc.realm, tc.service)
+			}
+		})
 	}
 }
 
