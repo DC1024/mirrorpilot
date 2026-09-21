@@ -929,10 +929,20 @@ a:focus-visible {
   min-width: 0;
 }
 
+/*
+  The address is the mirror's identity, so it holds its line rather than
+  breaking in the middle of a domain name. Real mirror URLs are short, so a
+  nowrap line never overflows; the ellipsis is only a guard against a
+  pathological address, and the full value is still one click away in the
+  edit form.
+*/
 .src-url code {
   font-family: var(--mono);
   font-size: 0.82rem;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .src-url .note {
