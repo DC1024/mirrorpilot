@@ -50,15 +50,16 @@ The panel is the foundation everything else hangs off, so it came first. Nothing
 Each mirror is measured in four steps, and the speed test page reports them separately. Knowing *which* step failed is the difference between a useful list and a wall of red:
 
 1. **Connect** — `GET /v2/`. Is the host up and speaking the registry protocol?
-2. **Token** — how long the anonymous pull token takes. A mirror can answer instantly and still be slow here.
+2. **Token** — how long the anonymous pull token takes. Where it comes from is the registry's decision, not ours: the `401` on `/v2/` carries a `WWW-Authenticate` challenge, and the token is fetched from the realm named in it — often a host that is not the mirror itself. A mirror can answer instantly and still be slow here.
 3. **Manifest** — time to the first byte, and a digest computed from what actually arrived.
 4. **Throughput** — pulling a real blob, capped at 8 MiB. This is the number that matters, because a mirror can answer instantly and still be useless.
 
-Three rules shape the verdicts, and they are the reason to trust this over a ping:
+Four rules shape the verdicts, and they are the reason to trust this over a ping:
 
 - **Rate limiting is not failure.** A 429 means the mirror is up and will not talk to us right now. It gets its own amber result, because folding it into "down" would make healthy mirrors look broken.
 - **A digest is never taken on trust.** The blob digest is computed locally from the bytes received, never read from a response header. And a read capped by the 8 MiB limit is reported as *unverifiable* rather than as a mismatch — accusing a mirror of serving bad content when the shortage was ours is exactly the wrong answer.
 - **A dash is not a zero.** A layer that produced no number shows a dash. Zero would claim the step finished faster than the clock could resolve, which is a different statement from "it never ran".
+- **Anonymous means anonymous, and redirects are followed the way a real pull follows them.** The probe never fills in a username or password: if a registry refuses an anonymous token, that is reported honestly. Because a cross-host redirect drops the `Authorization` header, a mirror that answers with a `302` gets re-authorised once against the final URL — otherwise an alias such as `hub.rat.dev` would be written off as needing credentials while `docker pull` succeeds against it.
 
 Every run records the digest the manifest resolved to, so two mirrors measured in the same batch can be compared honestly — a tag can be answered from a cache, and the same tag on two mirrors is not necessarily the same bytes.
 
