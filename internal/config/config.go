@@ -38,7 +38,8 @@ const (
 	MaxProbeConcurrency = 16
 
 	// MinimumInterval guards community mirrors from being hammered by an
-	// over-eager schedule.
+	// over-eager schedule. It applies to any non-zero interval; zero means the
+	// sweep is off, which is never "too frequent".
 	MinimumInterval = time.Minute
 	maximumTimeout  = 5 * time.Minute
 )
@@ -83,6 +84,13 @@ type ProbeConfig struct {
 
 	// Interval is the spacing between automatic probe runs. Users trigger most
 	// probes by hand; this only bounds a background sweep.
+	//
+	// Zero disables the sweep entirely, which is a legitimate choice: the
+	// measurements are made from wherever this process runs, and someone who
+	// keeps the panel on a metered or shared link should not have to discover
+	// the off switch by reading the source. Any non-zero value is floored at
+	// MinimumInterval — an interval of a few seconds is not a preference, it is
+	// a way to get this project's users rate-limited by community mirrors.
 	Interval Duration `yaml:"interval"`
 }
 
@@ -181,7 +189,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("probe timeout %s is outside 0..%s", timeout, maximumTimeout)
 	}
 
-	if interval := c.Probe.Interval.Std(); interval < MinimumInterval {
+	// A negative interval is a mistake, not a way to ask for less than nothing.
+	// Zero is the documented way to turn the sweep off.
+	if interval := c.Probe.Interval.Std(); interval < 0 {
+		return fmt.Errorf("probe interval %s cannot be negative; use 0 to disable the sweep", interval)
+	} else if interval > 0 && interval < MinimumInterval {
 		return fmt.Errorf("probe interval %s is below the %s minimum; these are community mirrors",
 			interval, MinimumInterval)
 	}

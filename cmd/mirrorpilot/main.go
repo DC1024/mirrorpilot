@@ -167,6 +167,13 @@ func run(ctx context.Context) error {
 
 	go sweepSessions(ctx, manager, logger)
 
+	// Started before ListenAndServe so the schedule is armed for the whole life
+	// of the process, and detached from any request: this is the one piece of
+	// work the panel does with nobody watching, which is exactly why it does not
+	// depend on the master key being unlocked. Measuring needs no credentials.
+	factory := newRunnerFactory(db)
+	go sweepProbes(ctx, cfg.Probe.Interval.Std(), newProbeSweep(db, factory, logger), logger)
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.Listen, "data", cfg.DataDir)
@@ -209,7 +216,7 @@ func newPanel(cfg config.Config, db *store.Store, manager *auth.Manager, logger 
 		Store:   db,
 		Auth:    manager,
 		I18n:    bundle,
-		Probe:   newProbeFactory(db),
+		Probe:   runnerProbes(newRunnerFactory(db)),
 		Version: Version,
 		Logger:  logger,
 
@@ -221,23 +228,152 @@ func newPanel(cfg config.Config, db *store.Store, manager *auth.Manager, logger 
 	})
 }
 
-// newProbeFactory builds the engine the speed test page measures with.
-//
-// A factory rather than one runner built at startup, because the image being
-// measured is a setting: changing it has to change what the next run measures,
-// and a form field that only takes effect after a restart is a form field
-// nobody trusts to do what it says.
+// runnerFactory builds the engine that measures mirrors for one image.
+type runnerFactory func(target probe.Target) (*probe.Runner, error)
+
+// newRunnerFactory returns a factory rather than one runner built at startup,
+// because the image being measured is a setting: changing it has to change what
+// the next run measures, and a form field that only takes effect after a
+// restart is a form field nobody trusts to do what it says.
 //
 // The runner is bound to the store as its recorder, so a measurement is
 // persisted by the same call that produced it and there is no path that
 // measures a mirror without leaving a trace of it.
-func newProbeFactory(db *store.Store) web.ProbeFactory {
-	return func(target probe.Target) (web.Prober, error) {
+//
+// Shared by the speed test page and the background sweep. They have to measure
+// the same way: both write into one history table, and a second engine
+// configured differently would leave that table holding two datasets that look
+// like one.
+func newRunnerFactory(db *store.Store) runnerFactory {
+	return func(target probe.Target) (*probe.Runner, error) {
 		engine, err := probe.New(probe.Options{Target: target})
 		if err != nil {
 			return nil, err
 		}
 		return probe.NewRunner(engine, db, probe.RunnerOptions{})
+	}
+}
+
+// runnerProbes adapts a runnerFactory to the narrower interface the panel asks
+// for, which exists so the web layer can be tested without a real registry.
+func runnerProbes(factory runnerFactory) web.ProbeFactory {
+	return func(target probe.Target) (web.Prober, error) {
+		runner, err := factory(target)
+		if err != nil {
+			return nil, err
+		}
+		return runner, nil
+	}
+}
+
+// probeSweepTimeout bounds one automatic batch.
+//
+// Generous for the same reason the speed test page's budget is: a dozen mirrors
+// at fifteen seconds each with a handful in flight is minutes of work. Finite so
+// that a sweep which somehow never finishes cannot silently stop every one that
+// would follow it.
+const probeSweepTimeout = 5 * time.Minute
+
+// sweepBatch is one automatic pass, reporting how many mirrors it covered.
+//
+// A function rather than the concrete call chain so the schedule can be tested
+// without a network: what is worth testing here is the timing and the survival,
+// not the measuring, which the probe package already tests on its own.
+type sweepBatch func(ctx context.Context) (int, error)
+
+// sweepProbes measures every enabled mirror on a fixed interval.
+//
+// The reason this exists: the config page ranks mirrors by their most recent
+// measurement, so a ranking built from numbers taken once, months ago, is a
+// ranking of the past. The sweep is what keeps that page honest without anyone
+// remembering to press a button.
+//
+// A zero interval turns it off. The measurements are taken from wherever this
+// process runs, and someone on a metered or shared link should not have to read
+// the source to find the switch.
+//
+// The first pass happens one interval after startup rather than at startup. A
+// container that restarts in a loop would otherwise probe every mirror on every
+// restart, which is precisely the hammering of community mirrors this project
+// avoids everywhere else.
+func sweepProbes(ctx context.Context, interval time.Duration, batch sweepBatch, logger *slog.Logger) {
+	if interval <= 0 {
+		logger.Info("automatic probing is off", "enable", "probe.interval")
+		return
+	}
+
+	logger.Info("automatic probing enabled", "interval", interval.String())
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// One bad sweep does not end the schedule. A mirror list that is
+			// briefly unreachable would otherwise turn the feature off for the
+			// rest of the process's life, and nobody notices that until the
+			// graph is flat.
+			swept, err := batch(ctx)
+			switch {
+			case ctx.Err() != nil:
+				// Shutting down. The batch is expected to come back with a
+				// cancellation error and there is nothing to report about it.
+				return
+			case err != nil:
+				logger.ErrorContext(ctx, "automatic probe sweep failed", "err", err)
+			case swept == 0:
+				logger.DebugContext(ctx, "automatic probe sweep had nothing to measure")
+			default:
+				logger.InfoContext(ctx, "automatic probe sweep finished", "mirrors", swept)
+			}
+		}
+	}
+}
+
+// newProbeSweep is the sweep's actual work: measure everything that is enabled.
+func newProbeSweep(db *store.Store, factory runnerFactory, logger *slog.Logger) sweepBatch {
+	return func(ctx context.Context) (int, error) {
+		// Re-read and rebuild on every pass: the image being measured is a
+		// setting someone can change between two sweeps, and reusing one
+		// engine would quietly pin the history to whatever was configured when
+		// the process started.
+		target, err := catalog.ProbeTarget(ctx, db)
+		if err != nil {
+			return 0, err
+		}
+
+		runner, err := factory(target)
+		if err != nil {
+			return 0, err
+		}
+
+		sources, err := catalog.EnabledForDockerHub(ctx, db)
+		if err != nil {
+			return 0, err
+		}
+		if len(sources) == 0 {
+			// Nothing enabled is a configuration, not a failure. Answered
+			// without a request: there is no reason to reach the network to
+			// discover there is no work.
+			return 0, nil
+		}
+
+		runCtx, cancel := context.WithTimeout(ctx, probeSweepTimeout)
+		defer cancel()
+
+		summary := runner.RunAll(runCtx, sources)
+
+		// A measurement can be taken and then fail to persist. The numbers are
+		// already gone by the time this returns, so this is the only place the
+		// loss is visible at all.
+		for _, err := range summary.RecordErrors {
+			logger.ErrorContext(ctx, "automatic probe result was not recorded", "err", err)
+		}
+
+		return len(summary.Results), nil
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/DC1024/mirrorpilot/internal/mirror"
+	"github.com/DC1024/mirrorpilot/internal/probe"
 	"github.com/DC1024/mirrorpilot/internal/store"
 )
 
@@ -124,4 +125,43 @@ func hasScope(rec store.SourceRecord, want mirror.Scope) bool {
 		}
 	}
 	return false
+}
+
+// ProbeTarget reads the image that probes measure, falling back to the built-in
+// default when nothing has been chosen.
+//
+// It lives here rather than in the web layer because two callers now need it:
+// the speed test page, which runs when someone clicks a button, and the
+// background sweep, which runs on a timer with nobody watching. Two copies of
+// "what are we measuring" would eventually answer differently, and the symptom
+// would be a history graph whose points were not all measured the same way —
+// the sort of thing that looks like noise rather than a bug.
+//
+// An absent setting is not an error: a fresh install should have something to
+// measure before it has been configured. Whether the result is usable is
+// probe.New's business, since it validates; repeating the rules here would be a
+// second implementation to keep in step with the first, and the second one
+// would win.
+func ProbeTarget(ctx context.Context, s *store.Store) (probe.Target, error) {
+	repository, err := s.SettingOrDefault(ctx, store.SettingProbeRepository, "")
+	if err != nil {
+		return probe.Target{}, err
+	}
+	reference, err := s.SettingOrDefault(ctx, store.SettingProbeReference, "")
+	if err != nil {
+		return probe.Target{}, err
+	}
+
+	fallback := probe.DefaultTarget()
+	if strings.TrimSpace(repository) == "" {
+		repository = fallback.Repository
+	}
+	if strings.TrimSpace(reference) == "" {
+		reference = fallback.Reference
+	}
+
+	return probe.Target{
+		Repository: strings.TrimSpace(repository),
+		Reference:  strings.TrimSpace(reference),
+	}, nil
 }

@@ -379,33 +379,12 @@ func statusClass(status probe.Status) string {
 
 // probeTarget reads the image to measure.
 //
-// An absent setting falls back to the default rather than an error, so a fresh
-// install has something to measure without being configured first.
+// The lookup itself lives in the catalogue package, because the background
+// sweep needs the same answer and would otherwise have its own copy of the
+// rule — which is how a history graph ends up mixing points that were not all
+// measured the same way.
 func (s *Server) probeTarget(ctx context.Context) (probe.Target, error) {
-	repository, err := s.store.SettingOrDefault(ctx, store.SettingProbeRepository, "")
-	if err != nil {
-		return probe.Target{}, err
-	}
-	reference, err := s.store.SettingOrDefault(ctx, store.SettingProbeReference, "")
-	if err != nil {
-		return probe.Target{}, err
-	}
-
-	fallback := probe.DefaultTarget()
-	if strings.TrimSpace(repository) == "" {
-		repository = fallback.Repository
-	}
-	if strings.TrimSpace(reference) == "" {
-		reference = fallback.Reference
-	}
-
-	// Whether this target is usable is New's business: it validates. Repeating
-	// the rules here would be a second implementation to keep in step with the
-	// first, and the second one would win.
-	return probe.Target{
-		Repository: strings.TrimSpace(repository),
-		Reference:  strings.TrimSpace(reference),
-	}, nil
+	return catalog.ProbeTarget(ctx, s.store)
 }
 
 // handleProbeRun measures mirrors and returns the visitor to the results.

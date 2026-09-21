@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DC1024/mirrorpilot/internal/mirror"
+	"github.com/DC1024/mirrorpilot/internal/probe"
 	"github.com/DC1024/mirrorpilot/internal/store"
 )
 
@@ -247,5 +248,79 @@ func TestEnabledForDockerHubIsEmptyWhenNothingQualifies(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("got %d sources from an empty store", len(got))
+	}
+}
+
+// TestProbeTargetFallsBackWhenNothingIsSet pins the default answer.
+//
+// The sweep depends on this: an unconfigured install starts measuring
+// immediately after startup, and getting this wrong would either leave it with
+// nothing to measure or make it invent an image of its own.
+func TestProbeTargetFallsBackWhenNothingIsSet(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+
+	got, err := ProbeTarget(ctx, st)
+	if err != nil {
+		t.Fatalf("ProbeTarget: %v", err)
+	}
+
+	want := probe.DefaultTarget()
+	if got != want {
+		t.Errorf("ProbeTarget = %+v, want the default %+v", got, want)
+	}
+}
+
+// TestProbeTargetReadsTheSettings is the other half: the setting wins when it
+// is there, so changing what is measured changes what the next run measures.
+func TestProbeTargetReadsTheSettings(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+
+	if err := st.SetSetting(ctx, store.SettingProbeRepository, "library/busybox"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	if err := st.SetSetting(ctx, store.SettingProbeReference, "1.37"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	got, err := ProbeTarget(ctx, st)
+	if err != nil {
+		t.Fatalf("ProbeTarget: %v", err)
+	}
+
+	if got.Repository != "library/busybox" {
+		t.Errorf("repository = %q", got.Repository)
+	}
+	if got.Reference != "1.37" {
+		t.Errorf("reference = %q", got.Reference)
+	}
+}
+
+// TestProbeTargetTrimsWhatTheSettingsSay covers values with stray whitespace.
+//
+// A form can save a padded value, and " library/alpine " resolved to a
+// different image than the one shown on the page would be a quiet lie about
+// what the numbers mean.
+func TestProbeTargetTrimsWhatTheSettingsSay(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+
+	if err := st.SetSetting(ctx, store.SettingProbeRepository, "  library/alpine  "); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	got, err := ProbeTarget(ctx, st)
+	if err != nil {
+		t.Fatalf("ProbeTarget: %v", err)
+	}
+	if got.Repository != "library/alpine" {
+		t.Errorf("repository = %q, want the trimmed value", got.Repository)
+	}
+
+	// The reference was never set, so it is still the default rather than
+	// empty: a target with an image and no tag is not a target.
+	if got.Reference == "" {
+		t.Error("reference is empty, want the default when the setting is absent")
 	}
 }

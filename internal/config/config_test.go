@@ -173,6 +173,11 @@ func TestValidateRejects(t *testing.T) {
 		"interval too short": func(c *Config) {
 			c.Probe.Interval = Duration(time.Second)
 		},
+		// Negative is a mistake, not a way to ask for less than nothing; zero
+		// is the documented way to switch the sweep off, so it is accepted.
+		"interval negative": func(c *Config) {
+			c.Probe.Interval = Duration(-1 * time.Minute)
+		},
 	}
 
 	for name, mutate := range cases {
@@ -205,5 +210,28 @@ func TestDurationUnmarshal(t *testing.T) {
 func TestDefaultPath(t *testing.T) {
 	if got := DefaultPath("/data"); got != filepath.Join("/data", DefaultFileName) {
 		t.Errorf("DefaultPath = %q", got)
+	}
+}
+
+// TestZeroIntervalDisablesTheSweep pins the one value that means "off".
+//
+// It has to be spelled out because the floor works the other way: every other
+// short interval is rejected as a way of hammering community mirrors, so the
+// only way to ask for less probing is to ask for none.
+func TestZeroIntervalDisablesTheSweep(t *testing.T) {
+	isolateEnv(t)
+
+	cfg, err := Load(writeConfig(t, "probe:\n  interval: 0s\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.Probe.Interval.Std(); got != 0 {
+		t.Errorf("Interval = %s, want 0 to disable the sweep", got)
+	}
+
+	// The rest of the probe settings still have to be in range: "0" is an
+	// exception for the interval alone, not a blanket amnesty.
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate on a disabled sweep: %v", err)
 	}
 }

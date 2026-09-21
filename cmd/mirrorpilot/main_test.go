@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -326,21 +328,22 @@ func noRedirectClient() *http.Client {
 	}
 }
 
-// TestNewProbeFactoryValidatesTheTarget covers the seam between the panel and
+// TestNewRunnerFactoryValidatesTheTarget covers the seam between the panel and
 // the engine.
 //
 // The panel deliberately does not re-implement the target's rules — it hands
 // whatever the settings say to the factory and lets the engine judge. That
 // makes this factory the only place the rule is applied, so it is the place to
-// check it.
-func TestNewProbeFactoryValidatesTheTarget(t *testing.T) {
+// check it. Both of its callers — the speed test page and the background sweep —
+// therefore get the same answer.
+func TestNewRunnerFactoryValidatesTheTarget(t *testing.T) {
 	db, err := store.Open(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
 	defer func() { _ = db.Close() }()
 
-	factory := newProbeFactory(db)
+	factory := newRunnerFactory(db)
 
 	runner, err := factory(probe.DefaultTarget())
 	if err != nil {
@@ -369,6 +372,133 @@ func TestNewProbeFactoryValidatesTheTarget(t *testing.T) {
 func TestCheckWritable(t *testing.T) {
 	if err := checkWritable(t.TempDir()); err != nil {
 		t.Errorf("checkWritable on a writable temp dir: %v", err)
+	}
+}
+
+// discardLogger keeps the sweep quiet.
+//
+// Not stderr: most of these tests run batches that fail on purpose, and a wall
+// of expected errors makes an unexpected one harder to see.
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// countBatch is a sweep whose only observable behaviour is that it ran.
+func countBatch(counter *atomic.Int32) sweepBatch {
+	return func(context.Context) (int, error) {
+		counter.Add(1)
+		return 3, nil
+	}
+}
+
+// waitFor polls until cond holds, or reports failure when the deadline passes.
+//
+// A poll rather than a single sleep because both things being waited on — one
+// tick of a timer, and a goroutine noticing a cancelled context — are timing
+// dependent, and a fixed sleep either wastes wall-clock time or flakes on a
+// loaded machine.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return cond()
+}
+
+func TestProbeSweepRunsOnItsInterval(t *testing.T) {
+	var calls atomic.Int32
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sweepProbes(ctx, 20*time.Millisecond, countBatch(&calls), discardLogger())
+	}()
+
+	// Two runs, not one: a schedule that fires once and stops is a different
+	// bug from one that never fires at all.
+	if !waitFor(t, 2*time.Second, func() bool { return calls.Load() >= 2 }) {
+		t.Fatalf("the sweep ran %d time(s), want at least 2: it should repeat", calls.Load())
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the sweep did not stop when its context was cancelled")
+	}
+}
+
+func TestProbeSweepIsOffWhenTheIntervalIsZero(t *testing.T) {
+	var calls atomic.Int32
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sweepProbes(context.Background(), 0, countBatch(&calls), discardLogger())
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a zero interval should return at once rather than run a schedule")
+	}
+
+	if got := calls.Load(); got != 0 {
+		t.Errorf("the sweep ran %d time(s) while disabled", got)
+	}
+}
+
+func TestProbeSweepSurvivesAFailingBatch(t *testing.T) {
+	var calls atomic.Int32
+
+	failing := func(ctx context.Context) (int, error) {
+		calls.Add(1)
+		return 0, errors.New("the mirror list could not be read")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go sweepProbes(ctx, 20*time.Millisecond, failing, discardLogger())
+
+	// The point of this test: one bad pass must not end the schedule. A mirror
+	// list that is briefly unreadable would otherwise turn the feature off for
+	// the rest of the process's life, with nothing in the UI to say so.
+	if !waitFor(t, 2*time.Second, func() bool { return calls.Load() >= 2 }) {
+		t.Fatalf("the sweep gave up after %d failing run(s)", calls.Load())
+	}
+}
+
+func TestNewProbeSweepDoesNothingWithoutAnEnabledMirror(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Deliberately not seeded: with no rows there is nothing to measure, and
+	// the sweep has to say so without reaching the network to find out. A test
+	// that answered this by probing Docker Hub would be a test that needs the
+	// internet, and this one is really about the guard in front of the work.
+	sweep := newProbeSweep(db, newRunnerFactory(db), discardLogger())
+
+	got, err := sweep(ctx)
+	if err != nil {
+		t.Fatalf("sweep over an empty database: %v", err)
+	}
+	if got != 0 {
+		t.Errorf("sweep measured %d mirrors in a database with none", got)
 	}
 }
 
