@@ -1,0 +1,144 @@
+{{define "content"}}
+{{ with .ProbePage }}
+
+<section class="card">
+  <h1>{{ $.T "probe.title" }}</h1>
+  <p class="lead">{{ $.T "probe.subtitle" }}</p>
+
+  <dl class="facts">
+    <div class="fact">
+      <dt>{{ $.T "probe.target" }}</dt>
+      <dd><code>{{ .Repository }}:{{ .Reference }}</code></dd>
+    </div>
+    <div class="fact">
+      <dt>{{ $.T "probe.batch_size" }}</dt>
+      <dd>{{ .Servable }}</dd>
+    </div>
+  </dl>
+
+  <p class="note">{{ $.T "probe.target_note" }}</p>
+
+  {{ if .Unavailable }}
+  <p class="alert alert-error" role="alert">{{ $.T "probe.error.unavailable" }}</p>
+  {{ else }}
+  <form method="post" action="/probe">
+    {{ template "csrf" $ }}
+    <button class="btn btn-primary" type="submit">{{ $.T "probe.run_all" }}</button>
+  </form>
+  <p class="field-hint">{{ $.T "probe.run_all_hint" }}</p>
+  {{ end }}
+</section>
+
+<section class="card">
+  <h2>{{ $.T "probe.egress_title" }}</h2>
+  <p>{{ $.T "probe.egress_body" }}</p>
+
+  {{ if .Egress.Proxied }}
+  <p class="alert alert-error" role="alert">{{ $.T "probe.egress_proxied" }}</p>
+  <ul class="list">
+    {{ range .Egress.Proxies }}<li><code>{{ . }}</code></li>{{ end }}
+  </ul>
+  {{ else }}
+  <p class="note">{{ $.T "probe.egress_direct" }}</p>
+  {{ end }}
+</section>
+
+<section class="card">
+  <h2>{{ $.T "probe.results_title" }}</h2>
+  <p class="note">{{ $.T "probe.results_note" }}</p>
+
+  <div class="scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{ $.T "probe.col.mirror" }}</th>
+          <th>{{ $.T "probe.col.verdict" }}</th>
+          <th>{{ $.T "probe.col.connect" }}</th>
+          <th>{{ $.T "probe.col.token" }}</th>
+          <th>{{ $.T "probe.col.manifest" }}</th>
+          <th>{{ $.T "probe.col.throughput" }}</th>
+          <th>{{ $.T "probe.col.digest" }}</th>
+          <th>{{ $.T "probe.col.history" }}</th>
+          <th><span class="sr-only">{{ $.T "probe.col.actions" }}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Rows }}
+        <tr>
+          <td>
+            <span class="rowtitle">{{ .Name }}</span>
+            {{ if not .Enabled }}<span class="pill pill-muted">{{ $.T "probe.disabled" }}</span>{{ end }}
+            {{ if and .Enabled (not .Servable) }}<span class="tag">{{ $.T "probe.not_dockerhub" }}</span>{{ end }}
+          </td>
+
+          <td>
+            {{ if .Verdict }}
+            <span class="pill {{ .Verdict.Class }}">{{ .Verdict.Label }}</span>
+            {{ if .Verdict.Detail }}<p class="note">{{ .Verdict.Detail }}</p>{{ end }}
+            {{ else }}
+            <span class="muted">{{ $.T "probe.never" }}</span>
+            {{ end }}
+          </td>
+
+          <td class="layer">{{ template "layercell" .Connect }}</td>
+          <td class="layer">{{ template "layercell" .Token }}</td>
+          <td class="layer">{{ template "layercell" .Manifest }}</td>
+          <td class="layer">{{ template "layercell" .Throughput }}</td>
+
+          <td>
+            {{ if .ShortDigest }}
+            <code title="{{ .Digest }}">{{ .ShortDigest }}</code>
+            {{ else }}
+            <span class="muted">—</span>
+            {{ end }}
+          </td>
+
+          <td class="sparkcell">
+            {{ with .Sparkline }}
+            <svg class="spark" width="{{ .Width }}" height="{{ .Height }}"
+                 viewBox="0 0 {{ .Width }} {{ .Height }}"
+                 role="img" aria-label="{{ $.T "probe.sparkline_label" }}">
+              <polyline points="{{ .Points }}"></polyline>
+            </svg>
+            <span class="note">{{ .PeakLabel }}</span>
+            {{ else }}
+            <span class="muted">{{ $.T "probe.no_history" }}</span>
+            {{ end }}
+          </td>
+
+          <td class="row-actions">
+            {{ if not $.ProbePage.Unavailable }}
+            <form method="post" action="/probe">
+              {{ template "csrf" $ }}
+              <input type="hidden" name="id" value="{{ .SourceID }}">
+              <button class="btn btn-small" type="submit">{{ $.T "probe.run_one" }}</button>
+            </form>
+            {{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>{{ $.T "probe.limits_title" }}</h2>
+  <p>{{ $.T "probe.limits_body" }}</p>
+  <ul class="list">
+    <li>{{ $.T "probe.limits_egress" }}</li>
+    <li>{{ $.T "probe.limits_daemon_json" }}</li>
+    <li>{{ $.T "probe.limits_cache" }}</li>
+    <li>{{ $.T "probe.limits_rate_limit" }}</li>
+  </ul>
+</section>
+
+{{ end }}
+
+<section class="card">
+  <h2>{{ .T "disclaimer.title" }}</h2>
+  <p>{{ .T "disclaimer.body" }}</p>
+  <p>{{ .T "disclaimer.official_only" }}</p>
+  <p class="note">{{ .T "disclaimer.no_warranty" }}</p>
+</section>
+{{end}}

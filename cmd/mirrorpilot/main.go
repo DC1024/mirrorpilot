@@ -22,8 +22,10 @@ import (
 	"time"
 
 	"github.com/DC1024/mirrorpilot/internal/auth"
+	"github.com/DC1024/mirrorpilot/internal/catalog"
 	"github.com/DC1024/mirrorpilot/internal/config"
 	"github.com/DC1024/mirrorpilot/internal/i18n"
+	"github.com/DC1024/mirrorpilot/internal/probe"
 	"github.com/DC1024/mirrorpilot/internal/store"
 	"github.com/DC1024/mirrorpilot/internal/web"
 )
@@ -123,6 +125,24 @@ func run(ctx context.Context) error {
 		}
 	}()
 
+	// Seed the built-in catalogue before serving a single page, because the
+	// sources page is empty without it and an install that shows no mirrors
+	// looks broken rather than unconfigured.
+	//
+	// Sync is idempotent and keeps the user's enable/disable choices, so
+	// running it on every start is also how a later release's added mirrors
+	// reach an existing install without disturbing what was already decided.
+	// A failure here is fatal: it means either the embedded catalogue is
+	// unreadable or the database refused a plain insert, and neither is a
+	// condition to serve through and hope someone notices.
+	added, err := catalog.Sync(ctx, db)
+	if err != nil {
+		return fmt.Errorf("seed mirror catalogue: %w", err)
+	}
+	if added > 0 {
+		logger.Info("added new built-in mirrors", "count", added)
+	}
+
 	manager := auth.New(db, auth.Config{})
 
 	panel, err := newPanel(cfg, db, manager, logger)
@@ -181,6 +201,7 @@ func newPanel(cfg config.Config, db *store.Store, manager *auth.Manager, logger 
 		Store:   db,
 		Auth:    manager,
 		I18n:    bundle,
+		Probe:   newProbeFactory(db),
 		Version: Version,
 		Logger:  logger,
 
@@ -190,6 +211,26 @@ func newPanel(cfg config.Config, db *store.Store, manager *auth.Manager, logger 
 		// otherwise leave it alone and cookies stay usable over plain HTTP.
 		Secure: strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://"),
 	})
+}
+
+// newProbeFactory builds the engine the speed test page measures with.
+//
+// A factory rather than one runner built at startup, because the image being
+// measured is a setting: changing it has to change what the next run measures,
+// and a form field that only takes effect after a restart is a form field
+// nobody trusts to do what it says.
+//
+// The runner is bound to the store as its recorder, so a measurement is
+// persisted by the same call that produced it and there is no path that
+// measures a mirror without leaving a trace of it.
+func newProbeFactory(db *store.Store) web.ProbeFactory {
+	return func(target probe.Target) (web.Prober, error) {
+		engine, err := probe.New(probe.Options{Target: target})
+		if err != nil {
+			return nil, err
+		}
+		return probe.NewRunner(engine, db, probe.RunnerOptions{})
+	}
 }
 
 // sweepSessions prunes expired session rows.

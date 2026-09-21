@@ -1,28 +1,92 @@
 package web
 
 import (
+	"context"
 	"net/http"
+	"strings"
 
+	"github.com/DC1024/mirrorpilot/internal/probe"
 	"github.com/DC1024/mirrorpilot/internal/store"
 )
 
 // handleDashboard shows where things stand.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	st := stateFrom(r.Context())
+	ctx := r.Context()
 
-	s.render(w, r, "dashboard", http.StatusOK,
-		s.newPageData(r, st, "dashboard.title", "nav.dashboard"))
+	summary, err := s.catalogSummary(ctx)
+	if err != nil {
+		s.fail(w, r, "web: load catalogue summary", err)
+		return
+	}
+
+	data := s.newPageData(r, stateFrom(ctx), "dashboard.title", "nav.dashboard")
+	data.Summary = summary
+
+	s.render(w, r, "dashboard", http.StatusOK, data)
+}
+
+// catalogSummary counts the catalogue and finds the newest measurement.
+//
+// The newest measurement is computed from the rows rather than with a MAX()
+// query so the dashboard does not need a second store method for one number.
+// The list and the latest-per-mirror map are both already loaded at this point.
+func (s *Server) catalogSummary(ctx context.Context) (catalogSummary, error) {
+	records, err := s.store.ListSources(ctx)
+	if err != nil {
+		return catalogSummary{}, err
+	}
+
+	latest, err := s.store.LatestProbes(ctx)
+	if err != nil {
+		return catalogSummary{}, err
+	}
+
+	summary := catalogSummary{Total: len(records), Probed: len(latest)}
+
+	for _, rec := range records {
+		if rec.Enabled {
+			summary.Enabled++
+		}
+		if probe := latest[rec.ID]; probe.StartedAt.After(summary.LastProbe) {
+			summary.LastProbe = probe.StartedAt
+		}
+	}
+
+	return summary, nil
+}
+
+// settingsPage backs the preferences page.
+type settingsPage struct {
+	ProbeRepository string
+	ProbeReference  string
+
+	// ProbeDefault is the target used when the fields are left blank, shown as
+	// the placeholder so an empty field explains what it will actually do
+	// instead of looking unset.
+	ProbeDefault probe.Target
 }
 
 // handleSettingsForm shows the preferences.
 func (s *Server) handleSettingsForm(w http.ResponseWriter, r *http.Request) {
-	st := stateFrom(r.Context())
+	ctx := r.Context()
 
-	s.render(w, r, "settings", http.StatusOK,
-		s.newPageData(r, st, "settings.title", "nav.settings"))
+	target, err := s.probeTarget(ctx)
+	if err != nil {
+		s.fail(w, r, "web: read probe target", err)
+		return
+	}
+
+	data := s.newPageData(r, stateFrom(ctx), "settings.title", "nav.settings")
+	data.SettingsPage = &settingsPage{
+		ProbeRepository: target.Repository,
+		ProbeReference:  target.Reference,
+		ProbeDefault:    probe.DefaultTarget(),
+	}
+
+	s.render(w, r, "settings", http.StatusOK, data)
 }
 
-// handleSettings saves language and theme.
+// handleSettings saves language, theme and the probe target.
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -43,8 +107,34 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// An empty field clears the setting rather than storing "", which is what
+	// makes the placeholder's promise true: blank means the default.
+	if err := s.saveProbeTarget(ctx, r); err != nil {
+		s.fail(w, r, "web: save probe target", err)
+		return
+	}
+
 	// Post/redirect/get, so a refresh does not resubmit the form.
 	redirect(w, r, "/settings?flash=settings.saved")
+}
+
+// saveProbeTarget stores the image probes measure.
+func (s *Server) saveProbeTarget(ctx context.Context, r *http.Request) error {
+	repository := strings.TrimSpace(r.PostFormValue("probe_repository"))
+	reference := strings.TrimSpace(r.PostFormValue("probe_reference"))
+
+	if err := s.storeSettingOrClear(ctx, store.SettingProbeRepository, repository); err != nil {
+		return err
+	}
+	return s.storeSettingOrClear(ctx, store.SettingProbeReference, reference)
+}
+
+// storeSettingOrClear writes a setting, or removes it when the value is blank.
+func (s *Server) storeSettingOrClear(ctx context.Context, key, value string) error {
+	if value == "" {
+		return s.store.DeleteSetting(ctx, key)
+	}
+	return s.store.SetSetting(ctx, key, value)
 }
 
 // handleLanguage switches language from the navigation bar.

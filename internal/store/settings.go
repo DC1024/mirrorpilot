@@ -23,6 +23,19 @@ const (
 
 	// SettingACRNamespace is the non-secret ACR namespace.
 	SettingACRNamespace = "acr_namespace"
+
+	// SettingProbeRepository is the Docker Hub repository that probes measure,
+	// e.g. "library/alpine". Not sensitive, and worth showing: a speed number
+	// means nothing without saying which image produced it.
+	SettingProbeRepository = "probe_repository"
+
+	// SettingProbeReference is the tag or digest of the image probes measure.
+	//
+	// A digest is the honest choice. A tag can be answered from a stale mirror
+	// cache, so two mirrors measured in the same batch may have served
+	// materially different bytes — which makes the comparison the tool exists
+	// to produce quietly unfair.
+	SettingProbeReference = "probe_reference"
 )
 
 // Credential names, used as the primary key of the credentials table.

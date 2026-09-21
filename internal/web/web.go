@@ -36,6 +36,8 @@ var pages = []string{
 	"login",
 	"unlock",
 	"dashboard",
+	"sources",
+	"probe",
 	"settings",
 	"password",
 	"error",
@@ -63,6 +65,17 @@ type Options struct {
 	Auth  *auth.Manager
 	I18n  *i18n.Bundle
 
+	// Probe builds the engine that measures mirrors.
+	//
+	// A factory rather than a ready-made runner because the image being
+	// measured is a setting: changing it has to take effect on the next run,
+	// and the alternative is telling the user to restart the panel to make a
+	// form field stick.
+	//
+	// Nil is allowed and means this build cannot probe — the pages then say so
+	// instead of offering a button that cannot work.
+	Probe ProbeFactory
+
 	// Version is shown in the footer.
 	Version string
 
@@ -82,6 +95,7 @@ type Server struct {
 	store   *store.Store
 	auth    *auth.Manager
 	i18n    *i18n.Bundle
+	probe   ProbeFactory
 	log     *slog.Logger
 	version string
 	secure  bool
@@ -117,6 +131,7 @@ func New(opts Options) (*Server, error) {
 		store:   opts.Store,
 		auth:    opts.Auth,
 		i18n:    opts.I18n,
+		probe:   opts.Probe,
 		log:     log,
 		version: opts.Version,
 		secure:  opts.Secure,
@@ -221,6 +236,15 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /unlock", s.requireSession(s.handleUnlock))
 
 	mux.HandleFunc("GET /dashboard", s.requireSession(s.handleDashboard))
+
+	mux.HandleFunc("GET /sources", s.requireSession(s.handleSources))
+	mux.HandleFunc("POST /sources", s.requireSession(s.handleSourceCreate))
+	mux.HandleFunc("POST /sources/{id}", s.requireSession(s.handleSourceUpdate))
+	mux.HandleFunc("POST /sources/{id}/delete", s.requireSession(s.handleSourceDelete))
+	mux.HandleFunc("POST /sources/{id}/enabled", s.requireSession(s.handleSourceEnabled))
+
+	mux.HandleFunc("GET /probe", s.requireSession(s.handleProbe))
+	mux.HandleFunc("POST /probe", s.requireSession(s.handleProbeRun))
 
 	mux.HandleFunc("GET /settings", s.requireSession(s.handleSettingsForm))
 	mux.HandleFunc("POST /settings", s.requireSession(s.handleSettings))
@@ -365,6 +389,21 @@ type pageData struct {
 	ThemeOptions       []themeOption
 	LanguageNames      map[string]string
 
+	// The four below are set only by the page that needs them. Nil means "not
+	// this page", which the templates test with {{ with }}.
+
+	// MirrorsPage backs the mirror management page.
+	MirrorsPage *mirrorsPage
+
+	// ProbePage backs the speed test page.
+	ProbePage *probePage
+
+	// SettingsPage backs the preferences page.
+	SettingsPage *settingsPage
+
+	// Summary backs the dashboard's overview of the catalogue.
+	Summary catalogSummary
+
 	// translator renders keys in the request's language.
 	//
 	// Unexported, and reached through T below, because text/template will only
@@ -451,6 +490,22 @@ func safeNext(next, fallback string) string {
 var flashKeys = map[string]bool{
 	"settings.saved":   true,
 	"password.changed": true,
+
+	"sources.created": true,
+	"sources.updated": true,
+	"sources.deleted": true,
+
+	// Refusals the user can act on. They travel as flashes rather than error
+	// pages because the visitor is sent back to the list they came from, which
+	// is exactly where the fix is.
+	"sources.error.builtin_readonly": true,
+	"sources.error.not_found":        true,
+	"sources.error.duplicate_id":     true,
+	"sources.error.invalid":          true,
+
+	"probe.ran":               true,
+	"probe.error.unavailable": true,
+	"probe.error.target":      true,
 }
 
 // flash reads the one-shot message from the query string and translates it.

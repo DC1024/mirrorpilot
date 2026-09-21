@@ -381,6 +381,184 @@ a:focus-visible {
   border-color: var(--warn-border);
 }
 
+.pill-bad {
+  background: var(--error-bg);
+  color: var(--error-text);
+  border-color: var(--error-border);
+}
+
+/*
+  pill-info and pill-muted carry no verdict.
+
+  pill-info marks something factual but unremarkable — a mirror operated by a
+  known project. pill-muted marks something that did not apply, like a layer a
+  mirror does not implement. Colouring either like a failure is how a working
+  mirror ends up looking broken.
+*/
+.pill-info {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.pill-muted {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+}
+
+/* Small labelled chips, for scopes and operators */
+
+.tag {
+  display: inline-block;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Tables */
+
+.scroll {
+  overflow-x: auto;
+  margin: 1rem 0 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.rowtitle {
+  display: block;
+  font-weight: 600;
+}
+
+/* A measurement, in a column of measurements. Tabular figures so the decimal
+   points line up and a glance down the column is enough to rank mirrors. */
+.num {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.layer {
+  white-space: nowrap;
+}
+
+/* Row actions sit side by side rather than stacked, and never wrap a button
+   onto its own line where it reads as a separate control. */
+.row-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  white-space: nowrap;
+}
+
+.row-actions form {
+  margin: 0;
+}
+
+.btn-danger {
+  color: var(--error-text);
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+/* Checkboxes read as one option per line, label included. */
+.check {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.check input {
+  margin: 0;
+}
+
+/* Related buttons, kept together at the end of a form. */
+.form-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.88rem;
+}
+
+.list code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+/* Sparklines */
+
+.sparkcell {
+  min-width: 8rem;
+}
+
+/*
+  The polyline is stroked in the accent colour and filled not at all.
+
+  vector-effect keeps the line one pixel thick regardless of the viewBox
+  scaling, and currentColor would inherit the table's text colour, which is
+  muted — a history nobody can see is worse than no history.
+*/
+.spark {
+  display: block;
+  color: var(--accent);
+}
+
+.spark polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
 /* Banners and alerts */
 
 .banner {

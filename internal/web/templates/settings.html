@@ -30,6 +30,27 @@
       </label>
     </fieldset>
 
+    {{ with .SettingsPage }}
+    <fieldset class="group">
+      <legend>{{ $.T "settings.probe" }}</legend>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "settings.probe_repository" }}</span>
+        <input name="probe_repository" type="text" value="{{ .ProbeRepository }}"
+               placeholder="{{ .ProbeDefault.Repository }}" autocomplete="off" spellcheck="false">
+      </label>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "settings.probe_reference" }}</span>
+        <input name="probe_reference" type="text" value="{{ .ProbeReference }}"
+               placeholder="{{ .ProbeDefault.Reference }}" autocomplete="off" spellcheck="false">
+        <span class="field-hint">{{ $.T "settings.probe_reference_hint" }}</span>
+      </label>
+
+      <p class="field-hint">{{ $.T "settings.probe_hint" }}</p>
+    </fieldset>
+    {{ end }}
+
     <button class="btn btn-primary" type="submit">{{ .T "action.save" }}</button>
   </form>
 </section>

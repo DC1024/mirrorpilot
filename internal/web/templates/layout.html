@@ -18,6 +18,8 @@
     {{- if .Authed }}
     <nav class="nav" aria-label="{{ .T "nav.dashboard" }}">
       <a href="/dashboard"{{ if eq .Nav "nav.dashboard" }} aria-current="page"{{ end }}>{{ .T "nav.dashboard" }}</a>
+      <a href="/sources"{{ if eq .Nav "nav.sources" }} aria-current="page"{{ end }}>{{ .T "nav.sources" }}</a>
+      <a href="/probe"{{ if eq .Nav "nav.probe" }} aria-current="page"{{ end }}>{{ .T "nav.probe" }}</a>
       <a href="/settings"{{ if eq .Nav "nav.settings" }} aria-current="page"{{ end }}>{{ .T "nav.settings" }}</a>
       <a href="https://github.com/DC1024/mirrorpilot" target="_blank" rel="noopener noreferrer">{{ .T "nav.docs" }}</a>
     </nav>

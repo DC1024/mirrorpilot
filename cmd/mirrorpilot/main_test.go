@@ -17,6 +17,8 @@ import (
 
 	"github.com/DC1024/mirrorpilot/internal/auth"
 	"github.com/DC1024/mirrorpilot/internal/config"
+	"github.com/DC1024/mirrorpilot/internal/mirror"
+	"github.com/DC1024/mirrorpilot/internal/probe"
 	"github.com/DC1024/mirrorpilot/internal/store"
 )
 
@@ -229,6 +231,52 @@ func TestRunServesAndShutsDown(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("run did not return after its context was cancelled")
 	}
+
+	// Startup has to seed the built-in catalogue: the sources page is empty
+	// without it, and an install that shows no mirrors looks broken rather
+	// than unconfigured. Asserted from outside the process, so it covers the
+	// real wiring rather than a call made in a test.
+	assertBuiltinCatalogueSeeded(t, dataDir)
+}
+
+// assertBuiltinCatalogueSeeded reopens the database the run left behind and
+// checks every mirror in the embedded catalogue is in it.
+func assertBuiltinCatalogueSeeded(t *testing.T, dataDir string) {
+	t.Helper()
+
+	db, err := store.Open(context.Background(), dataDir)
+	if err != nil {
+		t.Fatalf("reopen the database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	rows, err := db.ListSources(context.Background())
+	if err != nil {
+		t.Fatalf("ListSources: %v", err)
+	}
+
+	builtin, err := mirror.Builtin()
+	if err != nil {
+		t.Fatalf("mirror.Builtin: %v", err)
+	}
+
+	if len(rows) != builtin.Len() {
+		t.Fatalf("the database holds %d mirrors after startup, want %d",
+			len(rows), builtin.Len())
+	}
+
+	stored := make(map[string]bool, len(rows))
+	for _, rec := range rows {
+		stored[rec.ID] = true
+		if !rec.Builtin {
+			t.Errorf("mirror %q came from the embedded catalogue but is not marked built-in", rec.ID)
+		}
+	}
+	for _, src := range builtin.All() {
+		if !stored[src.ID] {
+			t.Errorf("the built-in mirror %q was not seeded", src.ID)
+		}
+	}
 }
 
 // freeAddr reserves a port and releases it, so run has somewhere to bind.
@@ -275,6 +323,46 @@ func noRedirectClient() *http.Client {
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+}
+
+// TestNewProbeFactoryValidatesTheTarget covers the seam between the panel and
+// the engine.
+//
+// The panel deliberately does not re-implement the target's rules — it hands
+// whatever the settings say to the factory and lets the engine judge. That
+// makes this factory the only place the rule is applied, so it is the place to
+// check it.
+func TestNewProbeFactoryValidatesTheTarget(t *testing.T) {
+	db, err := store.Open(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	factory := newProbeFactory(db)
+
+	runner, err := factory(probe.DefaultTarget())
+	if err != nil {
+		t.Fatalf("the factory refused the default target: %v", err)
+	}
+	if runner == nil {
+		t.Fatal("the factory returned a nil runner and no error")
+	}
+
+	// A target the engine refuses, which the settings page can produce by
+	// accepting a blank repository in a build with no default.
+	for name, target := range map[string]probe.Target{
+		"empty":      {},
+		"no repo":    {Reference: "latest"},
+		"no ref":     {Repository: "library/alpine"},
+		"slash only": {Repository: "/", Reference: "latest"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := factory(target); err == nil {
+				t.Errorf("the factory accepted the target %+v", target)
+			}
+		})
 	}
 }
 

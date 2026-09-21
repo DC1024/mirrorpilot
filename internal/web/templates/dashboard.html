@@ -34,6 +34,42 @@
 </section>
 
 <section class="card">
+  <h2>{{ .T "dashboard.mirrors" }}</h2>
+
+  <dl class="facts">
+    <div class="fact">
+      <dt>{{ .T "dashboard.mirrors_total" }}</dt>
+      <dd>{{ .Summary.Total }}</dd>
+    </div>
+    <div class="fact">
+      <dt>{{ .T "dashboard.mirrors_enabled" }}</dt>
+      <dd>{{ .Summary.Enabled }}</dd>
+    </div>
+    <div class="fact">
+      <dt>{{ .T "dashboard.mirrors_probed" }}</dt>
+      <dd>{{ .Summary.Probed }}</dd>
+    </div>
+    <div class="fact">
+      <dt>{{ .T "dashboard.last_probe" }}</dt>
+      <dd>
+        {{- if .Summary.LastProbe.IsZero -}}
+        <span class="muted">{{ .T "dashboard.never_probed" }}</span>
+        {{- else -}}
+        <time datetime="{{ .Summary.LastProbe.Format "2006-01-02T15:04:05Z07:00" }}">{{ .Summary.LastProbe.Format "2006-01-02 15:04 MST" }}</time>
+        {{- end -}}
+      </dd>
+    </div>
+  </dl>
+
+  <p class="note">{{ .T "dashboard.mirrors_note" }}</p>
+
+  <div class="form-actions">
+    <a class="btn" href="/sources">{{ .T "nav.sources" }}</a>
+    <a class="btn" href="/probe">{{ .T "nav.probe" }}</a>
+  </div>
+</section>
+
+<section class="card">
   <h2>{{ .T "disclaimer.title" }}</h2>
   <p>{{ .T "disclaimer.body" }}</p>
   <p>{{ .T "disclaimer.official_only" }}</p>

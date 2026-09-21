@@ -44,7 +44,12 @@ type harness struct {
 	server *Server
 }
 
-func newHarness(t *testing.T) *harness {
+// newHarness builds the panel as the binary does, minus the probe engine.
+//
+// tweak exists for the tests that do need an engine: passing nil for Probe is
+// the production default for a build that cannot probe, and leaving that as the
+// harness default keeps the "no engine" path the one most tests exercise.
+func newHarness(t *testing.T, tweak ...func(*Options)) *harness {
 	t.Helper()
 
 	ctx := context.Background()
@@ -70,13 +75,18 @@ func newHarness(t *testing.T) *harness {
 	// fails mid-render writes half a page and reports the reason only to the
 	// logger, which is exactly the failure that is hardest to diagnose from
 	// the response body alone.
-	srv, err := New(Options{
+	opts := Options{
 		Store:   st,
 		Auth:    manager,
 		I18n:    bundle,
 		Version: "test",
 		Logger:  slog.New(slog.NewTextHandler(testWriter{t}, nil)),
-	})
+	}
+	for _, fn := range tweak {
+		fn(&opts)
+	}
+
+	srv, err := New(opts)
 	if err != nil {
 		t.Fatalf("web.New: %v", err)
 	}
@@ -540,7 +550,10 @@ func TestProtectedPagesRedirectWhenLoggedOut(t *testing.T) {
 	})
 	h.client.Jar, _ = cookiejar.New(nil)
 
-	for _, path := range []string{"/dashboard", "/settings", "/password", "/unlock"} {
+	// Every page behind requireSession belongs on this list. A new page that
+	// forgot the wrapper would look fine in a browser that is already logged
+	// in, and would leak the mirror list to anyone who is not.
+	for _, path := range []string{"/dashboard", "/sources", "/probe", "/settings", "/password", "/unlock"} {
 		t.Run(path, func(t *testing.T) {
 			resp := h.get(path)
 			if resp.StatusCode != http.StatusSeeOther {

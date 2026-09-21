@@ -17,6 +17,18 @@
 {{- end}}
 
 {{/*
+  layercell renders one of the probe's four layers.
+
+  A dash rather than a zero when nothing was measured: zero milliseconds means
+  either "the layer never ran" or "it finished faster than the clock could
+  resolve", and printing "0 ms" would assert the second without knowing it.
+*/}}
+{{define "layercell" -}}
+<span class="pill {{ .Class }}">{{ .Label }}</span>
+<span class="num">{{ if .Measured }}{{ .Value }}{{ else }}—{{ end }}</span>
+{{- end}}
+
+{{/*
   langswitch and themeswitch submit themselves on change.
 
   They are forms rather than links because switching a preference mutates

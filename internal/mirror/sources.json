@@ -1,0 +1,122 @@
+[
+  {
+    "id": "daocloud",
+    "name": "DaoCloud",
+    "url": "https://docker.m.daocloud.io",
+    "homepage": "https://www.daocloud.io",
+    "scope": ["dockerhub", "ghcr", "quay", "gcr", "k8s"],
+    "provider": "cloud",
+    "trust": "verified",
+    "note": "Container platform vendor. Broad upstream coverage; upstream whitelists are adjusted without notice.",
+    "builtin": true,
+    "enabled": true
+  },
+  {
+    "id": "1panel",
+    "name": "1Panel",
+    "url": "https://docker.1panel.live",
+    "homepage": "https://1panel.cn",
+    "scope": ["dockerhub", "ghcr"],
+    "provider": "company",
+    "trust": "known",
+    "note": "Run by the 1Panel server-management project.",
+    "builtin": true,
+    "enabled": true
+  },
+  {
+    "id": "1ms",
+    "name": "1ms.run",
+    "url": "https://docker.1ms.run",
+    "homepage": "https://1ms.run",
+    "scope": ["dockerhub", "ghcr"],
+    "provider": "company",
+    "trust": "known",
+    "note": "Commercial acceleration service with a free public tier.",
+    "builtin": true,
+    "enabled": true
+  },
+  {
+    "id": "nju",
+    "name": "Nanjing University",
+    "url": "https://docker.nju.edu.cn",
+    "homepage": "https://mirror.nju.edu.cn",
+    "scope": ["dockerhub", "ghcr", "quay", "gcr"],
+    "provider": "academic",
+    "trust": "verified",
+    "note": "University mirror service; usage policy is published on the mirror site.",
+    "builtin": true,
+    "enabled": true
+  },
+  {
+    "id": "sjtug",
+    "name": "SJTU Linux Users Group",
+    "url": "https://docker.mirrors.sjtug.sjtu.edu.cn",
+    "homepage": "https://mirror.sjtu.edu.cn",
+    "scope": ["dockerhub", "ghcr", "gcr"],
+    "provider": "academic",
+    "trust": "verified",
+    "note": "Student-run mirror with a long track record.",
+    "builtin": true,
+    "enabled": true
+  },
+  {
+    "id": "ustc",
+    "name": "USTC",
+    "url": "https://docker.mirrors.ustc.edu.cn",
+    "homepage": "https://mirrors.ustc.edu.cn",
+    "scope": ["dockerhub"],
+    "provider": "academic",
+    "trust": "verified",
+    "note": "Long-standing university mirror. Docker coverage has been restricted at times; check the mirror's own page before relying on it.",
+    "builtin": true,
+    "enabled": false
+  },
+  {
+    "id": "tencent-ccs",
+    "name": "Tencent Cloud (VPC only)",
+    "url": "https://mirror.ccs.tencentyun.com",
+    "homepage": "https://cloud.tencent.com",
+    "scope": ["dockerhub"],
+    "provider": "cloud",
+    "trust": "verified",
+    "note": "Reachable only from inside a Tencent Cloud VPC. Probing it from anywhere else will always fail, which is expected rather than a fault.",
+    "builtin": true,
+    "enabled": false
+  },
+  {
+    "id": "dockerproxy",
+    "name": "dockerproxy.com",
+    "url": "https://dockerproxy.com",
+    "homepage": "https://dockerproxy.com",
+    "scope": ["dockerhub", "ghcr"],
+    "provider": "community",
+    "trust": "known",
+    "note": "Community-run proxy. Rate limits are not published.",
+    "builtin": true,
+    "enabled": false
+  },
+  {
+    "id": "rat-dev",
+    "name": "hub.rat.dev",
+    "url": "https://hub.rat.dev",
+    "homepage": "https://hub.rat.dev",
+    "scope": ["dockerhub"],
+    "provider": "community",
+    "trust": "unknown",
+    "note": "Little public information about the operator. Listed because people use it, not because it is recommended.",
+    "builtin": true,
+    "enabled": false
+  },
+  {
+    "id": "netease",
+    "name": "NetEase",
+    "url": "http://hub-mirror.c.163.com",
+    "scope": ["dockerhub"],
+    "provider": "company",
+    "trust": "known",
+    "note": "Plain HTTP only. Nothing in transit can be authenticated, so it is worth measuring but not worth trusting. Disabled by default.",
+    "builtin": true,
+    "enabled": false,
+    "insecure": true
+  }
+]

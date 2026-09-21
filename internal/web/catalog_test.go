@@ -71,6 +71,11 @@ func TestTemplateKeysExistInTheCatalog(t *testing.T) {
 
 // TestEveryPageTitleKeyIsKnown checks that each rendered page names a real
 // title key.
+//
+// The keys are derived from pages rather than listed here. A hand-written list
+// is a list someone forgets to extend, and the failure it would miss is a
+// browser tab reading "sources.title" — which is exactly the sort of thing
+// that survives review because the page body looks fine.
 func TestEveryPageTitleKeyIsKnown(t *testing.T) {
 	bundle, err := i18n.New()
 	if err != nil {
@@ -82,20 +87,10 @@ func TestEveryPageTitleKeyIsKnown(t *testing.T) {
 		known[key] = true
 	}
 
-	// The keys handed to newPageData as titleKey.
-	titles := []string{
-		"setup.title",
-		"login.title",
-		"unlock.title",
-		"dashboard.title",
-		"settings.title",
-		"password.title",
-		"error.title",
-	}
-
-	for _, key := range titles {
+	for _, page := range pages {
+		key := page + ".title"
 		if !known[key] {
-			t.Errorf("page title key %q is not in the catalogue", key)
+			t.Errorf("page %q renders through newPageData but the catalogue has no %q", page, key)
 		}
 	}
 }
