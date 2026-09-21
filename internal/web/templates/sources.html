@@ -1,8 +1,11 @@
 {{define "content"}}
-<section class="card">
-  <h1>{{ .T "sources.title" }}</h1>
-  <p class="lead">{{ .T "sources.subtitle" }}</p>
-</section>
+<div class="page-head">
+  <div>
+    <h1>{{ .T "sources.title" }}</h1>
+    <p class="lead">{{ .T "sources.subtitle" }}</p>
+  </div>
+  <a class="btn" href="/probe">{{ .T "nav.probe" }}</a>
+</div>
 
 {{ with .MirrorsPage }}
 
@@ -20,87 +23,93 @@
   <p class="note">{{ $.T "sources.id_immutable" }}</p>
   {{ end }}
 
-  <form class="stack" method="post"
+  <form class="stack src-form" method="post"
         action="{{ if .Form.Editing }}/sources/{{ .Form.ID }}{{ else }}/sources{{ end }}">
     {{ template "csrf" $ }}
 
-    <div class="field">
-      <label class="field-label" for="source-id">{{ $.T "sources.field.id" }}</label>
-      {{ if .Form.Editing }}
-      <input id="source-id" type="text" value="{{ .Form.ID }}" disabled>
-      {{ else }}
-      <input id="source-id" name="id" type="text" value="{{ .Form.ID }}"
-             pattern="[a-z0-9][a-z0-9-]{1,30}" required autocomplete="off">
-      <p class="field-hint">{{ $.T "sources.field.id_hint" }}</p>
-      {{ end }}
+    <div class="src-form-grid">
+      <div class="field">
+        <label class="field-label" for="source-id">{{ $.T "sources.field.id" }}</label>
+        {{ if .Form.Editing }}
+        <input id="source-id" type="text" value="{{ .Form.ID }}" disabled>
+        {{ else }}
+        <input id="source-id" name="id" type="text" value="{{ .Form.ID }}"
+               pattern="[a-z0-9][a-z0-9-]{1,30}" required autocomplete="off">
+        <p class="field-hint">{{ $.T "sources.field.id_hint" }}</p>
+        {{ end }}
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="source-name">{{ $.T "sources.field.name" }}</label>
+        <input id="source-name" name="name" type="text" value="{{ .Form.Name }}" required autocomplete="off">
+      </div>
+
+      <div class="field field-wide">
+        <label class="field-label" for="source-url">{{ $.T "sources.field.url" }}</label>
+        <input id="source-url" name="url" type="text" value="{{ .Form.URL }}"
+               placeholder="https://mirror.example.com" required autocomplete="off"
+               spellcheck="false">
+        <p class="field-hint">{{ $.T "sources.field.url_hint" }}</p>
+      </div>
+
+      <div class="field field-wide">
+        <label class="field-label" for="source-homepage">{{ $.T "sources.field.homepage" }}</label>
+        <input id="source-homepage" name="homepage" type="text" value="{{ .Form.Homepage }}"
+               placeholder="https://example.com" autocomplete="off" spellcheck="false">
+      </div>
+
+      <fieldset class="group">
+        <legend>{{ $.T "sources.field.scope" }}</legend>
+        <p class="field-hint">{{ $.T "sources.field.scope_hint" }}</p>
+        <div class="scope-checks">
+          {{ range .Scopes }}
+          <label class="check">
+            <input type="checkbox" name="scope" value="{{ .Value }}"
+                   {{ if $.MirrorsPage.Form.HasScope .Value }}checked{{ end }}>
+            <span>{{ .Label }}</span>
+          </label>
+          {{ end }}
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <label class="field-label" for="source-provider">{{ $.T "sources.field.provider" }}</label>
+        <select id="source-provider" name="provider">
+          {{ range .Providers }}
+          <option value="{{ .Value }}"{{ if eq .Value $.MirrorsPage.Form.Provider }} selected{{ end }}>{{ .Label }}</option>
+          {{ end }}
+        </select>
+        <p class="field-hint">{{ $.T "sources.field.provider_hint" }}</p>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="source-trust">{{ $.T "sources.field.trust" }}</label>
+        <select id="source-trust" name="trust">
+          {{ range .Trusts }}
+          <option value="{{ .Value }}"{{ if eq .Value $.MirrorsPage.Form.Trust }} selected{{ end }}>{{ .Label }}</option>
+          {{ end }}
+        </select>
+        <p class="field-hint">{{ $.T "sources.field.trust_hint" }}</p>
+      </div>
+
+      <div class="field field-wide">
+        <label class="field-label" for="source-note">{{ $.T "sources.field.note" }}</label>
+        <input id="source-note" name="note" type="text" value="{{ .Form.Note }}" autocomplete="off">
+      </div>
     </div>
 
-    <div class="field">
-      <label class="field-label" for="source-name">{{ $.T "sources.field.name" }}</label>
-      <input id="source-name" name="name" type="text" value="{{ .Form.Name }}" required autocomplete="off">
-    </div>
-
-    <div class="field">
-      <label class="field-label" for="source-url">{{ $.T "sources.field.url" }}</label>
-      <input id="source-url" name="url" type="text" value="{{ .Form.URL }}"
-             placeholder="https://mirror.example.com" required autocomplete="off"
-             spellcheck="false">
-      <p class="field-hint">{{ $.T "sources.field.url_hint" }}</p>
-    </div>
-
-    <div class="field">
-      <label class="field-label" for="source-homepage">{{ $.T "sources.field.homepage" }}</label>
-      <input id="source-homepage" name="homepage" type="text" value="{{ .Form.Homepage }}"
-             placeholder="https://example.com" autocomplete="off" spellcheck="false">
-    </div>
-
-    <fieldset class="group">
-      <legend>{{ $.T "sources.field.scope" }}</legend>
-      <p class="field-hint">{{ $.T "sources.field.scope_hint" }}</p>
-      {{ range .Scopes }}
+    <div class="src-form-flags">
       <label class="check">
-        <input type="checkbox" name="scope" value="{{ .Value }}"
-               {{ if $.MirrorsPage.Form.HasScope .Value }}checked{{ end }}>
-        <span>{{ .Label }}</span>
+        <input type="checkbox" name="enabled" value="1" {{ if .Form.Enabled }}checked{{ end }}>
+        <span>{{ $.T "sources.field.enabled" }}</span>
       </label>
-      {{ end }}
-    </fieldset>
 
-    <div class="field">
-      <label class="field-label" for="source-provider">{{ $.T "sources.field.provider" }}</label>
-      <select id="source-provider" name="provider">
-        {{ range .Providers }}
-        <option value="{{ .Value }}"{{ if eq .Value $.MirrorsPage.Form.Provider }} selected{{ end }}>{{ .Label }}</option>
-        {{ end }}
-      </select>
-      <p class="field-hint">{{ $.T "sources.field.provider_hint" }}</p>
+      <label class="check">
+        <input type="checkbox" name="insecure" value="1" {{ if .Form.Insecure }}checked{{ end }}>
+        <span>{{ $.T "sources.field.insecure" }}</span>
+      </label>
+      <p class="field-hint">{{ $.T "sources.field.insecure_hint" }}</p>
     </div>
-
-    <div class="field">
-      <label class="field-label" for="source-trust">{{ $.T "sources.field.trust" }}</label>
-      <select id="source-trust" name="trust">
-        {{ range .Trusts }}
-        <option value="{{ .Value }}"{{ if eq .Value $.MirrorsPage.Form.Trust }} selected{{ end }}>{{ .Label }}</option>
-        {{ end }}
-      </select>
-      <p class="field-hint">{{ $.T "sources.field.trust_hint" }}</p>
-    </div>
-
-    <div class="field">
-      <label class="field-label" for="source-note">{{ $.T "sources.field.note" }}</label>
-      <input id="source-note" name="note" type="text" value="{{ .Form.Note }}" autocomplete="off">
-    </div>
-
-    <label class="check">
-      <input type="checkbox" name="enabled" value="1" {{ if .Form.Enabled }}checked{{ end }}>
-      <span>{{ $.T "sources.field.enabled" }}</span>
-    </label>
-
-    <label class="check">
-      <input type="checkbox" name="insecure" value="1" {{ if .Form.Insecure }}checked{{ end }}>
-      <span>{{ $.T "sources.field.insecure" }}</span>
-    </label>
-    <p class="field-hint">{{ $.T "sources.field.insecure_hint" }}</p>
 
     <div class="form-actions">
       <button class="btn btn-primary" type="submit">
@@ -114,85 +123,70 @@
 </section>
 
 <section class="card">
-  <h2>{{ $.T "sources.list_title" }}</h2>
-  <p class="note">{{ $.T "sources.enabled_hint" }}</p>
-
-  <div class="scroll">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>{{ $.T "sources.col.name" }}</th>
-          <th>{{ $.T "sources.col.address" }}</th>
-          <th>{{ $.T "sources.col.scope" }}</th>
-          <th>{{ $.T "sources.col.operator" }}</th>
-          <th>{{ $.T "sources.col.trust" }}</th>
-          <th>{{ $.T "sources.col.latest" }}</th>
-          <th>{{ $.T "sources.col.enabled" }}</th>
-          <th><span class="sr-only">{{ $.T "sources.col.actions" }}</span></th>
-        </tr>
-      </thead>
-      <tbody>
-        {{ range .Mirrors }}
-        <tr>
-          <td>
-            <span class="rowtitle">{{ .Name }}</span>
-            {{ if .Builtin }}<span class="pill pill-muted">{{ $.T "sources.builtin" }}</span>{{ end }}
-            {{ if .Insecure }}<span class="pill pill-warn">{{ $.T "sources.insecure" }}</span>{{ end }}
-            {{ if .Note }}<p class="note">{{ .Note }}</p>{{ end }}
-          </td>
-
-          <td>
-            <code>{{ .URL }}</code>
-            {{ if .Homepage }}
-            <a class="note" href="{{ .Homepage }}" target="_blank" rel="noopener noreferrer">{{ $.T "sources.operator_page" }}</a>
-            {{ end }}
-          </td>
-
-          <td>
-            {{ range .Scopes }}<span class="tag">{{ .Label }}</span>{{ else }}<span class="muted">—</span>{{ end }}
-          </td>
-
-          <td><span class="tag">{{ .Provider.Label }}</span></td>
-
-          <td><span class="pill {{ .Trust.Class }}">{{ .Trust.Label }}</span></td>
-
-          <td>
-            {{ if .Latest }}
-            <span class="pill {{ .Latest.Class }}">{{ .Latest.Label }}</span>
-            {{ if .Latest.BPSLabel }}<span class="num">{{ .Latest.BPSLabel }}</span>{{ end }}
-            {{ else }}
-            <span class="muted">{{ $.T "sources.never_probed" }}</span>
-            {{ end }}
-          </td>
-
-          <td>
-            <form method="post" action="/sources/{{ .ID }}/enabled">
-              {{ template "csrf" $ }}
-              <input type="hidden" name="next" value="/sources">
-              <input type="hidden" name="enabled" value="{{ if .Enabled }}false{{ else }}true{{ end }}">
-              <button class="btn btn-small" type="submit">
-                {{ if .Enabled }}{{ $.T "sources.disable" }}{{ else }}{{ $.T "sources.enable" }}{{ end }}
-              </button>
-            </form>
-          </td>
-
-          <td class="row-actions">
-            {{ if .Builtin }}
-            <span class="muted">{{ $.T "sources.builtin_locked" }}</span>
-            {{ else }}
-            <a class="btn btn-small" href="/sources?edit={{ .ID }}">{{ $.T "sources.edit" }}</a>
-            <form method="post" action="/sources/{{ .ID }}/delete"
-                  data-confirm="{{ $.T "sources.delete_confirm" }}">
-              {{ template "csrf" $ }}
-              <button class="btn btn-small btn-danger" type="submit">{{ $.T "sources.delete" }}</button>
-            </form>
-            {{ end }}
-          </td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
+  <div class="list-head">
+    <h2>{{ $.T "sources.list_title" }}</h2>
+    <p class="note list-head-note">{{ $.T "sources.enabled_hint" }}</p>
   </div>
+
+  <ul class="src-list">
+    {{ range .Mirrors }}
+    <li class="src">
+      <div class="src-main">
+        <div class="src-name">
+          <span class="rowtitle">{{ .Name }}</span>
+          {{ if .Builtin }}<span class="pill pill-muted">{{ $.T "sources.builtin" }}</span>{{ end }}
+          {{ if .Insecure }}<span class="pill pill-warn">{{ $.T "sources.insecure" }}</span>{{ end }}
+        </div>
+        <div class="src-url">
+          <code>{{ .URL }}</code>
+          {{ if .Homepage }}
+          <a class="note" href="{{ .Homepage }}" target="_blank" rel="noopener noreferrer">{{ $.T "sources.operator_page" }}</a>
+          {{ end }}
+        </div>
+        <div class="src-tags">
+          {{ range .Scopes }}<span class="tag">{{ .Label }}</span>{{ else }}<span class="muted">—</span>{{ end }}
+          <span class="src-sep" aria-hidden="true"></span>
+          <span class="tag">{{ .Provider.Label }}</span>
+          <span class="pill {{ .Trust.Class }}">{{ .Trust.Label }}</span>
+        </div>
+        {{ if .Note }}<p class="note src-note">{{ .Note }}</p>{{ end }}
+      </div>
+
+      <div class="src-side">
+        <div class="src-latest">
+          <div class="src-side-label">{{ $.T "sources.col.latest" }}</div>
+          {{ if .Latest }}
+          <span class="pill {{ .Latest.Class }}">{{ .Latest.Label }}</span>
+          {{ if .Latest.BPSLabel }}<span class="num">{{ .Latest.BPSLabel }}</span>{{ end }}
+          {{ else }}
+          <span class="muted">{{ $.T "sources.never_probed" }}</span>
+          {{ end }}
+        </div>
+
+        <div class="src-ops">
+          <form method="post" action="/sources/{{ .ID }}/enabled">
+            {{ template "csrf" $ }}
+            <input type="hidden" name="next" value="/sources">
+            <input type="hidden" name="enabled" value="{{ if .Enabled }}false{{ else }}true{{ end }}">
+            <button class="btn btn-small" type="submit">
+              {{ if .Enabled }}{{ $.T "sources.disable" }}{{ else }}{{ $.T "sources.enable" }}{{ end }}
+            </button>
+          </form>
+          {{ if .Builtin }}
+          <span class="muted src-locked">{{ $.T "sources.builtin_locked" }}</span>
+          {{ else }}
+          <a class="btn btn-small" href="/sources?edit={{ .ID }}">{{ $.T "sources.edit" }}</a>
+          <form method="post" action="/sources/{{ .ID }}/delete"
+                data-confirm="{{ $.T "sources.delete_confirm" }}">
+            {{ template "csrf" $ }}
+            <button class="btn btn-small btn-danger" type="submit">{{ $.T "sources.delete" }}</button>
+          </form>
+          {{ end }}
+        </div>
+      </div>
+    </li>
+    {{ end }}
+  </ul>
 </section>
 
 <section class="card">

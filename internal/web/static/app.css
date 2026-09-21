@@ -841,3 +841,236 @@ a:focus-visible {
   color: var(--ok-text);
   font-weight: 600;
 }
+
+/* Page head: title block and the page's primary action on one line */
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* Sources list */
+/*
+  The mirror list was an eight-column table, which packed two pills into
+  several columns and gave the rowtitle, the inline badges and the note text
+  all the same visual weight. One card per mirror restores a reading order:
+  name first, address under it, the small badges on one quiet line, then the
+  measurement and the actions in a right-hand rail that wraps below on a
+  phone.
+*/
+
+.list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.list-head h2 {
+  margin-bottom: 0;
+}
+
+.list-head-note {
+  margin: 0;
+}
+
+.src-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.src {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.src:hover {
+  border-color: var(--accent);
+}
+
+.src-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.src-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.src-name .rowtitle {
+  display: inline;
+  font-size: 1rem;
+}
+
+.src-url {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.src-url code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.src-url .note {
+  margin: 0;
+}
+
+.src-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.src-tags .tag {
+  margin: 0;
+}
+
+/* A short rule between the scope tags and the operator/trust badges, which
+   are two different kinds of fact sharing one line. */
+.src-sep {
+  width: 1px;
+  height: 0.85em;
+  background: var(--border);
+  margin: 0 0.15rem;
+}
+
+.src-note {
+  margin: 0;
+}
+
+.src-side {
+  flex: none;
+  width: 12.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--border);
+}
+
+.src-side-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.src-latest .num {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.src-ops {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.src-ops form {
+  margin: 0;
+}
+
+.src-locked {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 60rem) {
+  .src {
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .src-side {
+    width: 100%;
+    padding-left: 0;
+    border-left: 0;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--border);
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+}
+
+/* Sources add/edit form */
+/*
+  Ten stacked fields made the form a wall. Two columns halve the scroll; the
+  wide fields (URL, homepage, the scope checkboxes, the note) keep the full
+  width because their content does not fit in half a card.
+*/
+
+.src-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem 1.25rem;
+}
+
+.src-form-grid .group {
+  grid-column: 1 / -1;
+}
+
+.src-form-grid .field-wide {
+  grid-column: 1 / -1;
+}
+
+.scope-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.4rem 1rem;
+}
+
+.src-form-flags {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+
+.src-form-flags .check {
+  margin: 0;
+}
+
+.src-form-flags .field-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+@media (max-width: 46rem) {
+  .src-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
