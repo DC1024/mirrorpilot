@@ -75,7 +75,6 @@
   "dashboard.state_all_ok": "运行正常",
   "dashboard.subtitle": "当前的整体状态。",
   "dashboard.title": "总览",
-  "dashboard.unit_measured": "个",
   "dashboard.version": "版本",
 
   "disclaimer.body": "MirrorPilot 是一个免费的社区项目。它自己不运营任何镜像站，也不中转镜像流量。它做的是测量别人运营的源，并帮你把镜像复制到你自己掌控的仓库里。",

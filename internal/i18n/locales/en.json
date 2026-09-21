@@ -75,7 +75,6 @@
   "dashboard.state_all_ok": "All good",
   "dashboard.subtitle": "Where things stand right now.",
   "dashboard.title": "Dashboard",
-  "dashboard.unit_measured": "measured",
   "dashboard.version": "Version",
 
   "disclaimer.body": "MirrorPilot is a free community project. It does not run mirrors of its own and it does not proxy image traffic. It measures sources that others operate, and helps you copy images into a registry you control.",
