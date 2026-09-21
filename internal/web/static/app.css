@@ -307,7 +307,7 @@ a:focus-visible {
 .main {
   flex: 1;
   width: 100%;
-  max-width: 60rem;
+  max-width: 80rem;
   margin: 0 auto;
   padding: clamp(1.25rem, 4vw, 2rem) clamp(1rem, 4vw, 2rem) 3rem;
   display: flex;
@@ -316,16 +316,14 @@ a:focus-visible {
 }
 
 /*
-  The speed test page carries nine columns — a mirror, a verdict, four layers
-  of measurement, a digest, a history and its actions — and on a reading-width
-  column that meant a permanent horizontal scrollbar on desktops, with the
-  numbers nobody scrolls to read hidden behind one. A page measured in columns
-  of numbers gets the width those columns need; the .scroll wrapper stays as
-  the fallback for screens genuinely narrower than the table.
+  Every page gets the same 80rem column, the width the speed test table
+  needs. The panel once gave only /probe the wide column and held the rest
+  at a reading width, but pages that changed width as you navigated read as
+  a rendering glitch rather than a design: the sidebar of the eye insists
+  the frame jumped. One width everywhere costs a little whitespace on the
+  sparse pages and buys a panel that holds still; the .scroll wrapper stays
+  as the fallback for screens genuinely narrower than a table.
 */
-.main-wide {
-  max-width: 80rem;
-}
 
 .card {
   padding: clamp(1.1rem, 3vw, 1.6rem);
@@ -686,6 +684,6 @@ a:focus-visible {
 
 .footer p {
   margin: 0;
-  max-width: 60rem;
+  max-width: 80rem;
   margin-inline: auto;
 }
