@@ -240,6 +240,45 @@ func (s *Store) SyncBuiltinSources(ctx context.Context, rows []SourceRecord) (in
 	return after - before, nil
 }
 
+// RetireBuiltins deletes built-in rows whose ids the catalogue no longer
+// carries, and reports how many went away. It runs after SyncBuiltinSources on
+// every start, so a source removed from the catalogue in a later release does
+// not linger in installs that first met it in an earlier one.
+//
+// The probe history goes with them (probe_runs cascades on source delete).
+// Keeping measurements of a source the catalogue has written off would mean a
+// ranking page that still argues about a mirror nobody can measure any more;
+// the honest state is for the row, and its history, to be gone.
+//
+// User-added rows are never touched, whatever their id — the catalogue does
+// not get a vote on data the user typed in themselves. And an empty keep list
+// is refused: wiping every built-in row because the catalogue failed to load
+// would be a bug compounding itself.
+func (s *Store) RetireBuiltins(ctx context.Context, keep []string) (int, error) {
+	if len(keep) == 0 {
+		return 0, fmt.Errorf("store: retire built-in sources: empty keep list")
+	}
+
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(keep)), ",")
+	args := make([]any, len(keep))
+	for i, id := range keep {
+		args[i] = id
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM sources WHERE builtin = 1 AND id NOT IN (`+placeholders+`)`,
+		args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: retire built-in sources: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("store: retire built-in sources: %w", err)
+	}
+	return int(n), nil
+}
+
 func (s *Store) countSources(ctx context.Context) (int, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sources`).Scan(&n); err != nil {

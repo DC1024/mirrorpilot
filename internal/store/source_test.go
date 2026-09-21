@@ -325,6 +325,67 @@ func TestSyncBuiltinSourcesRefusesUserRows(t *testing.T) {
 	}
 }
 
+// A source dropped from the catalogue must not linger on installs that met it
+// in an earlier release — and its history goes with it, or the ranking page
+// keeps arguing about a mirror nobody can measure any more. Rows the user
+// created themselves are not the catalogue's to delete, whatever their name.
+func TestRetireBuiltinsDropsOnlyRetiredBuiltins(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.SyncBuiltinSources(ctx, []SourceRecord{
+		builtinSource("keeper"),
+		builtinSource("retired"),
+	}); err != nil {
+		t.Fatalf("SyncBuiltinSources: %v", err)
+	}
+	// The user's own mirror happens to share the retired row's domain, but it
+	// is a different row with a different id: theirs, not the catalogue's.
+	mine := userSource("my-own")
+	if err := s.CreateSource(ctx, mine); err != nil {
+		t.Fatalf("CreateSource: %v", err)
+	}
+	if err := s.InsertProbe(ctx, probeRecord("retired", time.Now(), 1)); err != nil {
+		t.Fatalf("InsertProbe: %v", err)
+	}
+
+	retired, err := s.RetireBuiltins(ctx, []string{"keeper", "my-own"})
+	if err != nil {
+		t.Fatalf("RetireBuiltins: %v", err)
+	}
+	if retired != 1 {
+		t.Fatalf("retired = %d, want 1", retired)
+	}
+
+	if _, err := s.GetSource(ctx, "retired"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetSource after retire = %v, want ErrNotFound", err)
+	}
+	var runs int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM probe_runs WHERE source_id = 'retired'`).Scan(&runs); err != nil {
+		t.Fatalf("count history: %v", err)
+	}
+	if runs != 0 {
+		t.Errorf("%d probe runs survived the source they belong to", runs)
+	}
+
+	if _, err := s.GetSource(ctx, "my-own"); err != nil {
+		t.Errorf("the user's own row did not survive: %v", err)
+	}
+
+	// An empty keep list would wipe the whole catalogue on a catalogue bug;
+	// it is refused rather than obeyed.
+	if _, err := s.RetireBuiltins(ctx, nil); err == nil {
+		t.Error("RetireBuiltins with an empty keep list succeeded")
+	}
+
+	// Idempotent: nothing left to retire, no error.
+	again, err := s.RetireBuiltins(ctx, []string{"keeper", "my-own"})
+	if err != nil || again != 0 {
+		t.Errorf("second retire = (%d, %v), want (0, nil)", again, err)
+	}
+}
+
 func TestSyncBuiltinSourcesWithNoRowsIsANoop(t *testing.T) {
 	s := newTestStore(t)
 

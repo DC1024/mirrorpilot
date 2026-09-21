@@ -35,14 +35,25 @@ func Sync(ctx context.Context, s *store.Store) (int, error) {
 	}
 
 	rows := make([]store.SourceRecord, 0, builtin.Len())
+	keep := make([]string, 0, builtin.Len())
 	for _, src := range builtin.All() {
 		rows = append(rows, ToRecord(src))
+		keep = append(keep, src.ID)
 	}
 
 	added, err := s.SyncBuiltinSources(ctx, rows)
 	if err != nil {
 		return 0, fmt.Errorf("catalog: sync built-in sources: %w", err)
 	}
+
+	// A source the catalogue has dropped must not haunt installs that met it
+	// in an earlier release: the row, and the history hanging off it, would
+	// keep a dead mirror on the page and in the ranking. Idempotent — on an
+	// install that never saw the removed entries, this deletes nothing.
+	if _, err := s.RetireBuiltins(ctx, keep); err != nil {
+		return 0, fmt.Errorf("catalog: retire removed built-ins: %w", err)
+	}
+
 	return added, nil
 }
 

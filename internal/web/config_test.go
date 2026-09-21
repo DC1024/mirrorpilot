@@ -59,7 +59,7 @@ func TestConfigRanksTheEnabledDockerHubMirrors(t *testing.T) {
 	for _, want := range []string{
 		"docker.m.daocloud.io",
 		"docker.1panel.live",
-		"docker.nju.edu.cn",
+		"docker.1ms.run",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the configuration page does not mention the enabled mirror %q", want)
@@ -67,9 +67,12 @@ func TestConfigRanksTheEnabledDockerHubMirrors(t *testing.T) {
 	}
 
 	// A mirror that ships switched off is not a candidate. Writing it into
-	// someone's daemon.json would make the enable flag a decoration.
-	if strings.Contains(body, "mirror.ccs.tencentyun.com") {
-		t.Error("a switched-off mirror reached the generated configuration")
+	// someone's daemon.json would make the enable flag a decoration. NJU
+	// ships off because it refuses every off-campus request.
+	for _, off := range []string{"mirror.ccs.tencentyun.com", "docker.nju.edu.cn"} {
+		if strings.Contains(body, off) {
+			t.Errorf("a switched-off mirror (%s) reached the generated configuration", off)
+		}
 	}
 
 	daemon := preContent(t, body, "daemon-json")
@@ -96,7 +99,7 @@ func TestConfigPutsMeasuredMirrorsFirst(t *testing.T) {
 
 	// One measurement, on a mirror the catalogue does not list first.
 	if err := h.store.InsertProbe(t.Context(), store.ProbeRecord{
-		SourceID:         "sjtug",
+		SourceID:         "1ms",
 		StartedAt:        time.Now(),
 		Connectivity:     string(probe.StatusOK),
 		TokenStatus:      string(probe.StatusOK),
@@ -111,7 +114,7 @@ func TestConfigPutsMeasuredMirrorsFirst(t *testing.T) {
 	body := h.body(h.get("/config"))
 	daemon := preContent(t, body, "daemon-json")
 
-	measured := strings.Index(daemon, "sjtug.sjtu.edu.cn")
+	measured := strings.Index(daemon, "docker.1ms.run")
 	unmeasured := strings.Index(daemon, "docker.m.daocloud.io")
 
 	if measured < 0 || unmeasured < 0 {

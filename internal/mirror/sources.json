@@ -31,7 +31,7 @@
     "scope": ["dockerhub", "ghcr"],
     "provider": "company",
     "trust": "known",
-    "note": "Commercial acceleration service with a free public tier.",
+    "note": "Commercial acceleration service with a free public tier. Blob transfers are occasionally cut off mid-read, which the probe records as a failed throughput rather than smoothing over.",
     "builtin": true,
     "enabled": true
   },
@@ -43,31 +43,7 @@
     "scope": ["dockerhub", "ghcr", "quay", "gcr"],
     "provider": "academic",
     "trust": "verified",
-    "note": "University mirror service; usage policy is published on the mirror site. Requests from off-campus networks are refused (HTTP 403 as of 2026-09), which the probe reports as needing credentials.",
-    "builtin": true,
-    "enabled": true
-  },
-  {
-    "id": "sjtug",
-    "name": "SJTU Linux Users Group",
-    "url": "https://docker.mirrors.sjtug.sjtu.edu.cn",
-    "homepage": "https://mirror.sjtu.edu.cn",
-    "scope": ["dockerhub", "ghcr", "gcr"],
-    "provider": "academic",
-    "trust": "verified",
-    "note": "Student-run mirror with a long track record.",
-    "builtin": true,
-    "enabled": true
-  },
-  {
-    "id": "ustc",
-    "name": "USTC",
-    "url": "https://docker.mirrors.ustc.edu.cn",
-    "homepage": "https://mirrors.ustc.edu.cn",
-    "scope": ["dockerhub"],
-    "provider": "academic",
-    "trust": "verified",
-    "note": "The public Docker mirror was restricted to the university's own users and its domain no longer resolves (NXDOMAIN as of 2026-09). Kept listed so the history is explainable; leave it disabled.",
+    "note": "University mirror service; usage policy is published on the mirror site. Requests from off-campus networks are refused (HTTP 403 as of 2026-09), which the probe reports as needing credentials. Useful on campus; leave it off elsewhere.",
     "builtin": true,
     "enabled": false
   },
@@ -79,19 +55,7 @@
     "scope": ["dockerhub"],
     "provider": "cloud",
     "trust": "verified",
-    "note": "Reachable only from inside a Tencent Cloud VPC. Probing it from anywhere else will always fail, which is expected rather than a fault.",
-    "builtin": true,
-    "enabled": false
-  },
-  {
-    "id": "dockerproxy",
-    "name": "dockerproxy.com",
-    "url": "https://dockerproxy.com",
-    "homepage": "https://dockerproxy.com",
-    "scope": ["dockerhub", "ghcr"],
-    "provider": "community",
-    "trust": "known",
-    "note": "Community-run proxy. Rate limits are not published.",
+    "note": "Tencent Cloud's own free Docker Hub mirror for its customers, reachable only from inside a Tencent Cloud VPC. Enable it on an instance that lives there; probing it from anywhere else will always fail, which is expected rather than a fault.",
     "builtin": true,
     "enabled": false
   },
@@ -106,17 +70,5 @@
     "note": "Little public information about the operator. It answers by redirecting to docker.1ms.run, so it behaves like that mirror and stands or falls with it. Listed because people use it, not because it is recommended.",
     "builtin": true,
     "enabled": false
-  },
-  {
-    "id": "netease",
-    "name": "NetEase",
-    "url": "http://hub-mirror.c.163.com",
-    "scope": ["dockerhub"],
-    "provider": "company",
-    "trust": "known",
-    "note": "Plain HTTP only. Nothing in transit can be authenticated, so it is worth measuring but not worth trusting. Disabled by default.",
-    "builtin": true,
-    "enabled": false,
-    "insecure": true
   }
 ]

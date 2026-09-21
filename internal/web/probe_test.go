@@ -250,7 +250,9 @@ func TestProbeBatchCoversEnabledDockerHubMirrorsOnly(t *testing.T) {
 
 	// The order is the store's: enabled first, then by name, case-insensitively.
 	// A batch that reshuffled between runs would make the table jump around.
-	want := []string{"1ms", "1panel", "daocloud", "nju", "sjtug"}
+	// The catalogue's defaults enable only the sources that serve anonymous
+	// pulls from anywhere; everything else ships switched off.
+	want := []string{"1ms", "1panel", "daocloud"}
 
 	if len(got) != len(want) {
 		t.Fatalf("the batch covered %v, want %v", got, want)
@@ -265,7 +267,7 @@ func TestProbeBatchCoversEnabledDockerHubMirrorsOnly(t *testing.T) {
 		switch id {
 		case "ghcr-only":
 			t.Error("a mirror that does not proxy Docker Hub was measured and would be blamed for the 404")
-		case "ustc", "tencent-ccs", "dockerproxy", "rat-dev", "netease":
+		case "nju", "tencent-ccs", "rat-dev":
 			t.Errorf("a switched-off mirror (%s) was measured", id)
 		}
 	}

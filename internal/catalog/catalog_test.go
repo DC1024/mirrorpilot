@@ -97,6 +97,56 @@ func TestSyncSeedsTheBuiltinCatalogueOnce(t *testing.T) {
 	}
 }
 
+// A release that drops a source from sources.json must also drop the row from
+// installs that first met it earlier — otherwise the dead mirror haunts the
+// speed test page and the ranking forever.
+func TestSyncRetiresSourcesTheCatalogueNoLongerCarries(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+
+	ghost := store.SourceRecord{
+		ID: "ghost", Name: "Ghost", URL: "https://ghost.example",
+		Scope: []string{"dockerhub"}, Provider: "community", Trust: "known",
+		Builtin: true, Enabled: true,
+	}
+	if _, err := st.SyncBuiltinSources(ctx, []store.SourceRecord{ghost}); err != nil {
+		t.Fatalf("seeding the ghost: %v", err)
+	}
+
+	added, err := Sync(ctx, st)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	_ = added
+
+	rows, err := st.ListSources(ctx)
+	if err != nil {
+		t.Fatalf("ListSources: %v", err)
+	}
+	for _, rec := range rows {
+		if rec.ID == "ghost" {
+			t.Fatal("a source the catalogue no longer carries survived the sync")
+		}
+	}
+
+	// A user-added row is not the catalogue's to delete, even when it collides
+	// with the ghost's name.
+	mine := store.SourceRecord{
+		ID: "my-ghost", Name: "My Own", URL: "https://mine.example",
+		Scope: []string{"dockerhub"}, Provider: "community", Trust: "known",
+		Enabled: true,
+	}
+	if err := st.CreateSource(ctx, mine); err != nil {
+		t.Fatalf("CreateSource: %v", err)
+	}
+	if _, err := Sync(ctx, st); err != nil {
+		t.Fatalf("Sync after adding a user row: %v", err)
+	}
+	if _, err := st.GetSource(ctx, "my-ghost"); err != nil {
+		t.Errorf("the user's own row did not survive the sync: %v", err)
+	}
+}
+
 func TestSyncKeepsTheUsersOwnChoices(t *testing.T) {
 	ctx := context.Background()
 	st := newStore(t)
