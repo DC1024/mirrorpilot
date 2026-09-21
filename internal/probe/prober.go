@@ -174,14 +174,23 @@ func (p *Prober) Probe(ctx context.Context, src mirror.Source) Result {
 		return verdict(res)
 	}
 
-	body, digest, manifestLayer := p.fetchManifest(ctx, base, token, p.opts.Target.Reference)
+	// A mirror that answers a challenge mid-flight (typically because it
+	// redirected us somewhere and the redirect stripped our credentials)
+	// deserves the same treatment a real client gives it: read the new
+	// challenge, fetch a token for it, and try once more.
+	reauth := func(ch authChallenge) (string, bool) {
+		tok, layer := p.fetchToken(ctx, src, ch)
+		return tok, layer.Status == StatusOK
+	}
+
+	body, digest, manifestLayer := p.fetchManifest(ctx, base, token, p.opts.Target.Reference, reauth)
 	res.Manifest = manifestLayer
 	res.ResolvedDigest = digest
 	if manifestLayer.Status != StatusOK {
 		return verdict(res)
 	}
 
-	throughput, read, checked, verified := p.fetchBlob(ctx, base, token, parseManifest(body))
+	throughput, read, checked, verified := p.fetchBlob(ctx, base, token, parseManifest(body), reauth)
 	res.Throughput = throughput
 	res.Bytes = read
 	res.BlobDigestChecked = checked
@@ -384,6 +393,11 @@ func (p *Prober) fetchToken(ctx context.Context, src mirror.Source, challenge au
 	}
 }
 
+// reauthFunc fetches a token for a challenge that arrived mid-probe. It
+// reports whether a usable token came back, so the caller can decide whether
+// a retry is worth making.
+type reauthFunc func(authChallenge) (string, bool)
+
 // fetchManifest is layer 3. It returns the manifest body and its digest.
 //
 // The digest is computed from the bytes we received, never read from the
@@ -391,11 +405,24 @@ func (p *Prober) fetchToken(ctx context.Context, src mirror.Source, challenge au
 // header to match, so the only digest worth trusting is the one we calculate.
 // The header is still consulted, because a disagreement between the two is
 // worth reporting.
-func (p *Prober) fetchManifest(ctx context.Context, base, token, reference string) ([]byte, string, Layer) {
+func (p *Prober) fetchManifest(ctx context.Context, base, token, reference string, reauth reauthFunc) ([]byte, string, Layer) {
 	target := base + "/v2/" + p.opts.Target.Repository + "/manifests/" + reference
+	u, err := url.Parse(target)
+	if err != nil {
+		return nil, "", Layer{Status: StatusFailed, Detail: "malformed mirror URL"}
+	}
+	return p.fetchManifestURL(ctx, u, token, reauth)
+}
 
+// fetchManifestURL performs one manifest request, and — when the response is a
+// fresh challenge, which is what a redirect across hosts leaves behind after
+// stripping the Authorization header — retries once against the final URL with
+// a token minted for that challenge. That is the same courtesy a real client
+// extends, and without it an alias that redirects to an authenticated registry
+// reads as "needs credentials" although a plain docker pull succeeds.
+func (p *Prober) fetchManifestURL(ctx context.Context, u *url.URL, token string, reauth reauthFunc) ([]byte, string, Layer) {
 	start := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, "", Layer{Status: StatusFailed, Detail: "malformed mirror URL"}
 	}
@@ -411,6 +438,16 @@ func (p *Prober) fetchManifest(ctx context.Context, base, token, reference strin
 			Duration: time.Since(start), Detail: reason(err)}
 	}
 	defer closeBody(resp)
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		if ch := parseChallenge(resp.Header.Get("WWW-Authenticate")); ch.realm != "" && reauth != nil {
+			if tok2, ok := reauth(ch); ok {
+				// One retry, against the URL we actually landed on. The nil
+				// keeps a mirror that challenges forever from looping us.
+				return p.fetchManifestURL(ctx, resp.Request.URL, tok2, nil)
+			}
+		}
+	}
 
 	if failure, ok := manifestHTTPFailure(resp, start); ok {
 		return nil, "", failure
@@ -457,8 +494,8 @@ func manifestHTTPFailure(resp *http.Response, start time.Time) (Layer, bool) {
 // The second boolean reports whether a digest check was possible at all: a read
 // capped by MaxBlobBytes cannot be verified, and saying "unverified" is not the
 // same as saying "wrong".
-func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifestDoc) (Layer, int64, bool, bool) {
-	blob, ok := p.pickBlob(ctx, base, token, doc)
+func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifestDoc, reauth reauthFunc) (Layer, int64, bool, bool) {
+	blob, ok := p.pickBlob(ctx, base, token, doc, reauth)
 	if !ok {
 		return Layer{Status: StatusSkipped, Detail: "manifest listed no blob for this platform"}, 0, false, false
 	}
@@ -467,9 +504,13 @@ func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifest
 	}
 
 	target := base + "/v2/" + p.opts.Target.Repository + "/blobs/" + blob.Digest
+	u, err := url.Parse(target)
+	if err != nil {
+		return Layer{Status: StatusFailed, Detail: "malformed mirror URL"}, 0, false, false
+	}
 
 	start := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return Layer{Status: StatusFailed, Detail: "malformed mirror URL"}, 0, false, false
 	}
@@ -484,6 +525,16 @@ func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifest
 			Detail: reason(err)}, 0, false, false
 	}
 	defer closeBody(resp)
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		// Same story as the manifest: a redirect across hosts stripped the
+		// credentials, and the challenge names where a new token lives.
+		if ch := parseChallenge(resp.Header.Get("WWW-Authenticate")); ch.realm != "" && reauth != nil {
+			if tok2, ok := reauth(ch); ok {
+				return p.fetchBlobAt(ctx, resp.Request.URL, tok2, blob)
+			}
+		}
+	}
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -518,12 +569,67 @@ func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifest
 	return layer, read, complete, verified
 }
 
+// fetchBlobAt reads the blob at an absolute URL — the retry half of fetchBlob,
+// after a mid-flight challenge produced a fresh token. One attempt, no
+// further retries: a mirror that challenges forever does not get a loop.
+// The verification contract is the same as the main path's: the bytes are
+// hashed, and only a complete read that matches the manifest's digest counts.
+func (p *Prober) fetchBlobAt(ctx context.Context, u *url.URL, token string, blob descriptor) (Layer, int64, bool, bool) {
+	start := time.Now()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return Layer{Status: StatusFailed, Detail: "malformed mirror URL"}, 0, false, false
+	}
+	req.Header.Set("User-Agent", p.opts.UserAgent)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return Layer{Status: StatusUnreachable, Duration: time.Since(start),
+			Detail: reason(err)}, 0, false, false
+	}
+	defer closeBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		switch {
+		case resp.StatusCode == http.StatusTooManyRequests:
+			return Layer{Status: StatusRateLimited, Duration: time.Since(start),
+				Detail: retryAfter(resp)}, 0, false, false
+		case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+			return Layer{Status: StatusUnauthorized, Duration: time.Since(start),
+				Detail: "blob requires credentials"}, 0, false, false
+		default:
+			return Layer{Status: StatusFailed, Duration: time.Since(start),
+				Detail: fmt.Sprintf("HTTP %d for the blob", resp.StatusCode)}, 0, false, false
+		}
+	}
+
+	hasher := sha256.New()
+	read, err := io.Copy(hasher, io.LimitReader(resp.Body, p.opts.MaxBlobBytes))
+	elapsed := time.Since(start)
+
+	layer := Layer{Status: StatusOK, Duration: elapsed}
+	if err != nil {
+		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: "blob transfer was interrupted"}
+	}
+
+	complete := read >= blob.Size
+	if !complete && layer.Status == StatusOK {
+		layer.Detail = fmt.Sprintf("read capped at %s of %s", HumanBytes(read), HumanBytes(blob.Size))
+	}
+
+	verified := complete && "sha256:"+hex.EncodeToString(hasher.Sum(nil)) == blob.Digest
+	return layer, read, complete, verified
+}
+
 // pickBlob resolves a manifest down to the one blob worth measuring.
 //
 // A multi-platform index first has to be followed to the manifest for this
 // host's architecture, because probing another architecture produces a number
 // for an image this machine can never run.
-func (p *Prober) pickBlob(ctx context.Context, base, token string, doc manifestDoc) (descriptor, bool) {
+func (p *Prober) pickBlob(ctx context.Context, base, token string, doc manifestDoc, reauth reauthFunc) (descriptor, bool) {
 	if len(doc.Manifests) > 0 {
 		chosen, ok := selectPlatform(doc.Manifests, runtime.GOOS, runtime.GOARCH)
 		if !ok {
@@ -532,7 +638,7 @@ func (p *Prober) pickBlob(ctx context.Context, base, token string, doc manifestD
 
 		// Re-fetch by digest so the child is pinned to the exact bytes the
 		// index named, rather than to whatever a tag means now.
-		body, _, layer := p.fetchManifest(ctx, base, token, chosen.Digest)
+		body, _, layer := p.fetchManifest(ctx, base, token, chosen.Digest, reauth)
 		if layer.Status != StatusOK {
 			return descriptor{}, false
 		}

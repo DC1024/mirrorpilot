@@ -160,9 +160,7 @@ func serveStub(w http.ResponseWriter, r *http.Request, s stub) {
 			w.Header().Set("Retry-After", s.connectRetry)
 		}
 		if s.challengePath != "" {
-			realmHost := orString(s.challengeHost, r.Host)
-			w.Header().Set("WWW-Authenticate",
-				fmt.Sprintf(`Bearer realm="http://%s%s", service="stub"`, realmHost, s.challengePath))
+			s.setChallengeHeader(w, r)
 		}
 		w.WriteHeader(orStatus(s.connect, http.StatusOK))
 		return
@@ -185,14 +183,27 @@ func serveStub(w http.ResponseWriter, r *http.Request, s stub) {
 		return
 	}
 	if dig, ok := afterMarker(r.URL.Path, "/blobs/"); ok {
-		serveBlob(w, dig, s)
+		serveBlob(w, r, dig, s)
 		return
 	}
 	w.WriteHeader(http.StatusNotFound)
 }
 
+// setChallengeHeader emits the WWW-Authenticate a real registry attaches to
+// every 401, not just the one on /v2/ — a challenge can arrive mid-probe, and
+// that is exactly the case the re-authorisation logic exists for.
+func (s stub) setChallengeHeader(w http.ResponseWriter, r *http.Request) {
+	if s.challengePath == "" {
+		return
+	}
+	realmHost := orString(s.challengeHost, r.Host)
+	w.Header().Set("WWW-Authenticate",
+		fmt.Sprintf(`Bearer realm="http://%s%s", service="stub"`, realmHost, s.challengePath))
+}
+
 func serveManifest(w http.ResponseWriter, r *http.Request, ref string, s stub) {
 	if s.requireBearer != "" && r.Header.Get("Authorization") != "Bearer "+s.requireBearer {
+		s.setChallengeHeader(w, r)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -202,6 +213,9 @@ func serveManifest(w http.ResponseWriter, r *http.Request, ref string, s stub) {
 		return
 	}
 	if status := orStatus(m.status, http.StatusOK); status != http.StatusOK {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			s.setChallengeHeader(w, r)
+		}
 		w.WriteHeader(status)
 		return
 	}
@@ -212,7 +226,12 @@ func serveManifest(w http.ResponseWriter, r *http.Request, ref string, s stub) {
 	_, _ = w.Write(m.body)
 }
 
-func serveBlob(w http.ResponseWriter, dig string, s stub) {
+func serveBlob(w http.ResponseWriter, r *http.Request, dig string, s stub) {
+	if s.requireBearer != "" && r.Header.Get("Authorization") != "Bearer "+s.requireBearer {
+		s.setChallengeHeader(w, r)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	if status := orStatus(s.blobStatus, http.StatusOK); status != http.StatusOK {
 		if s.blobRetry != "" {
 			w.Header().Set("Retry-After", s.blobRetry)
@@ -655,6 +674,53 @@ func TestParseChallenge(t *testing.T) {
 				t.Errorf("parseChallenge = %+v, want realm %q service %q", got, tc.realm, tc.service)
 			}
 		})
+	}
+}
+
+func TestProbeReauthorizesAfterARedirectStrippedTheToken(t *testing.T) {
+	// hub.rat.dev is a real example: an alias that 302s everything to another
+	// registry. A redirect across hosts strips the Authorization header, so
+	// every authenticated request lands as anonymous and is challenged again.
+	// A real client re-fetches a token for the new challenge and retries
+	// against where it actually landed; the probe now does the same, and this
+	// test fails unless it does.
+	blob := bytes.Repeat([]byte("r"), 8192)
+	child := mustJSON(t, testImage{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Layers:    []testDescriptor{{Digest: digestOf(blob), Size: int64(len(blob))}},
+	})
+
+	srvB, _, logB := newStub(t, stub{
+		connect:       http.StatusUnauthorized,
+		challengePath: "/auth/token",
+		tokenPath:     "/auth/token",
+		token:         http.StatusOK,
+		manifests:     map[string]stubManifest{"latest": {body: child}},
+		blobs:         map[string][]byte{digestOf(blob): blob},
+		requireBearer: "stub-token",
+	})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Redirect by a different host name — 127.0.0.1 to localhost — because
+		// that is what makes Go's client strip the Authorization header, and
+		// that stripping is the behaviour under test.
+		target := strings.Replace(srvB.URL, "127.0.0.1", "localhost", 1)
+		http.Redirect(w, r, target+r.URL.RequestURI(), http.StatusFound)
+	})
+	srvA := httptest.NewServer(mux)
+	t.Cleanup(srvA.Close)
+
+	res := newProber(t, nil, nil).Probe(t.Context(), mirror.Source{ID: "alias", Name: "Alias", URL: srvA.URL})
+
+	if res.Manifest.Status != StatusOK {
+		t.Errorf("manifest = %q (%q), want a retry to succeed", res.Manifest.Status, res.Manifest.Detail)
+	}
+	if res.Status != StatusOK {
+		t.Fatalf("status = %q, want %q (detail %q)", res.Status, StatusOK, res.Detail)
+	}
+	if !logB.sawPath("/auth/token") {
+		t.Errorf("the redirected registry's realm was never asked for a token")
 	}
 }
 
