@@ -38,9 +38,9 @@ MirrorPilot is being built in milestones. This is what actually works today:
 | Multi-arch image (`linux/amd64`, `linux/arm64`) | **Working** |
 | Mirror catalogue with trust grading, plus mirrors you add yourself | **Working** |
 | Four-layer speed probe with per-mirror history | **Working** |
-| `daemon.json` config generation | Planned |
-| GitHub Actions → Alibaba Cloud ACR relocation | Planned |
-| Opt-in relay mode | Planned |
+| `daemon.json` + containerd `hosts.toml` generation, merging into what you already have | **Working** |
+| GitHub Actions → Alibaba Cloud ACR relocation (workflow generation + dispatch) | **Working** |
+| Opt-in relay mode (`ddn-k8s` / `crproxy` style address rewriting) | **Working** |
 
 The panel is the foundation everything else hangs off, so it came first. Nothing here pretends to do more than it does: the dashboard does not show empty charts for features that do not exist yet.
 
@@ -60,6 +60,23 @@ Three rules shape the verdicts, and they are the reason to trust this over a pin
 - **A dash is not a zero.** A layer that produced no number shows a dash. Zero would claim the step finished faster than the clock could resolve, which is a different statement from "it never ran".
 
 Every run records the digest the manifest resolved to, so two mirrors measured in the same batch can be compared honestly — a tag can be answered from a cache, and the same tag on two mirrors is not necessarily the same bytes.
+
+## Getting images you cannot reach
+
+Measurement answers "which mirror is fastest". It does not answer "how do I actually pull this image". Three pages do that, and they exist because the obstacle changes shape depending on where the image lives:
+
+**Config (`/config`)** — for images on Docker Hub. It ranks the mirrors you have enabled and measured, then writes the `daemon.json` (or containerd `hosts.toml`) those rankings imply. Two details are worth knowing:
+
+- The order *is* the feature. Docker tries each mirror in turn and stops at the first that answers, so a fast mirror listed second is worth no more than a slow one first.
+- Paste your existing `daemon.json` and it merges rather than replaces: `registry-mirrors` is overwritten, `insecure-registries` is merged, and anything it does not manage is carried through untouched. A document with comments or a trailing comma is **refused**, not silently corrected — Docker rejects those too, and pretending otherwise would hand you a config that fails later, somewhere less obvious.
+
+It also tells you what it *cannot* do: `registry-mirrors` only applies to Docker Hub, so enabled mirrors proxying other registries are counted and set aside rather than written in to occupy a slot that does nothing.
+
+**Sync (`/sync`)** — for images on `ghcr.io`, `quay.io`, `gcr.io` and friends, where no mirror helps. This is the "borrow someone else's network" route: a GitHub Actions runner can reach registries your machines cannot. The page generates the workflow, stores the credentials it needs as repository secrets, and can dispatch a run with a list of image addresses. "Dispatch accepted" and "copy succeeded" are different statements — GitHub says nothing after accepting the request — so the page shows the run log rather than claiming success on the button press.
+
+**Relay (`/config`, lower half)** — opt-in, and deliberately off until you set an endpoint. A relay is not a mirror, and the difference is the shape of the address: a mirror speaks the registry protocol at the same path as upstream, while a relay takes the *whole original address as a path* and decides for itself where to fetch from. The worked example is Huawei Cloud SWR's public `ddn-k8s` relay. Set the endpoint once and the page turns any image address into a pull command.
+
+None of these three touches your system. They generate text, and you decide what to do with it.
 
 ## Quick start
 
@@ -88,6 +105,8 @@ That is deliberate. Tying the key to a browser session would mean background wor
 
 **If you forget the password, the stored credentials are unrecoverable.** There is no reset link, and no recovery key. That is the point: it is also what makes a stolen `/data` volume useless on its own.
 
+What you *can* do is start over. Running the panel with `-reset` deletes the account, the sessions and every stored credential in one transaction, then exits — it recovers nothing, it just clears the way to a fresh first-run setup. Your mirror sources, settings and probe history are left alone, since none of them were secret. This is the difference between "I lost my password" and "I lost my data": the first one is annoying, the second one is what the encryption is for.
+
 ## Configuration
 
 Precedence, lowest to highest: built-in defaults → `config.yaml` → environment variables → command-line flags.
@@ -115,6 +134,7 @@ probe:                   # reserved for the probing engine
 | `-config` | `MIRRORPILOT_CONFIG` | Config file path (default `<data dir>/config.yaml`) |
 | `-data` | `MIRRORPILOT_DATA` | Persistent data directory (default `/data`) |
 | `-listen` | `MIRRORPILOT_BIND` | Listen address (default `0.0.0.0:8080`) |
+| `-reset` | — | Delete the account, sessions and stored credentials, then exit (start over; recovers nothing) |
 | — | `MIRRORPILOT_LOG_LEVEL` | Log level |
 | — | `MIRRORPILOT_BASE_URL` | Externally visible URL |
 
