@@ -38,6 +38,7 @@ MirrorPilot is being built in milestones. This is what actually works today:
 | Multi-arch image (`linux/amd64`, `linux/arm64`) | **Working** |
 | Mirror catalogue with trust grading, plus mirrors you add yourself | **Working** |
 | Four-layer speed probe with per-mirror history | **Working** |
+| Automatic background probing on an interval, so a ranking cannot go stale | **Working** |
 | `daemon.json` + containerd `hosts.toml` generation, merging into what you already have | **Working** |
 | GitHub Actions → Alibaba Cloud ACR relocation (workflow generation + dispatch) | **Working** |
 | Opt-in relay mode (`ddn-k8s` / `crproxy` style address rewriting) | **Working** |
@@ -60,6 +61,8 @@ Three rules shape the verdicts, and they are the reason to trust this over a pin
 - **A dash is not a zero.** A layer that produced no number shows a dash. Zero would claim the step finished faster than the clock could resolve, which is a different statement from "it never ran".
 
 Every run records the digest the manifest resolved to, so two mirrors measured in the same batch can be compared honestly — a tag can be answered from a cache, and the same tag on two mirrors is not necessarily the same bytes.
+
+None of it depends on you remembering to press the button. Every `probe.interval` the panel repeats this whole measurement for every enabled mirror on its own, which is what keeps the ranking on the config page from quietly becoming a ranking of last month. Two things worth knowing: the sweep needs no credentials, so it keeps running while the panel is locked; and `interval: 0s` turns it off, because these measurements come from wherever this process runs and not everyone wants that traffic against someone else's mirror.
 
 ## Getting images you cannot reach
 
@@ -123,10 +126,10 @@ log_level: info          # debug | info | warn | error
 # silently drop the session cookie.
 base_url: ""
 
-probe:                   # reserved for the probing engine
-  concurrency: 5
-  timeout: 15s
-  interval: 30m
+probe:
+  concurrency: 5         # mirrors measured at once, 1..16
+  timeout: 15s           # per-request budget
+  interval: 30m          # background sweep: minimum 1m, 0s turns it off
 ```
 
 | Flag | Environment | Meaning |
@@ -137,6 +140,48 @@ probe:                   # reserved for the probing engine
 | `-reset` | — | Delete the account, sessions and stored credentials, then exit (start over; recovers nothing) |
 | — | `MIRRORPILOT_LOG_LEVEL` | Log level |
 | — | `MIRRORPILOT_BASE_URL` | Externally visible URL |
+
+## Putting TLS in front of the panel
+
+The panel speaks plain HTTP on a single port and does not terminate TLS itself. If you need to reach it from anywhere other than your own LAN, put a reverse proxy in front of it. Caddy is the shortest path, because it handles certificates on its own.
+
+Three things change when you do:
+
+1. **Stop publishing the panel's port.** Let the proxy reach it over a Docker network instead, so there is no way to reach the panel except through TLS.
+2. **Set `MIRRORPILOT_BASE_URL` to the external HTTPS URL.** That is what makes the panel mark its session cookie `Secure`. Leave it unset and your browser silently drops the cookie on every request, so logging in appears to do nothing.
+3. **Keep `/data` mounted exactly as it was.** None of this touches the database.
+
+Two certificate details matter if, like most home and small-office setups, you have **no domain name** — just an address:
+
+- **Let's Encrypt needs a name to validate.** On a bare IP it cannot succeed: the HTTP-01 challenge is answered by whoever parks the address rather than by your server, and TLS-ALPN-01 is reset in transit. `tls internal` tells Caddy to issue from its own CA instead. The connection is still encrypted; the browser simply warns once that it cannot vouch for who is on the other end. That warning is the honest answer here, not a misconfiguration to hide.
+- **`default_sni` is not optional.** RFC 6066 forbids clients from sending SNI for an IP literal, so a browser reaching `https://203.0.113.10/` arrives with an empty server name — and Caddy matches site blocks on SNI. Without a default, that handshake dies with `tlsv1 alert internal error`: the certificate is sitting right there, nothing claims it. You can recognise this because `curl -k https://203.0.113.10/healthz` fails while `openssl s_client -connect 203.0.113.10:443 -servername 203.0.113.10` happily shows the certificate.
+
+A Caddyfile for an address with no name, verified on Caddy 2.11:
+
+```
+{
+	default_sni 118.89.25.55
+}
+
+118.89.25.55 {
+	tls internal
+	encode gzip
+	reverse_proxy mirrorpilot:8080
+}
+
+# Everything arriving in the clear is sent to the encrypted address. 8080 is
+# kept answering for exactly this reason: it was the panel's address, and a
+# redirect means old bookmarks fail loudly rather than silently.
+:80 {
+	redir https://118.89.25.55{uri} permanent
+}
+
+:8080 {
+	redir https://118.89.25.55{uri} permanent
+}
+```
+
+Mount it read-only into `caddy:2`, publish 80/443/8080 from the proxy rather than from the panel, and give Caddy a volume for `/data` so its CA survives a restart. Substitute your own address for `118.89.25.55` — all four places.
 
 ## Data & backup
 
