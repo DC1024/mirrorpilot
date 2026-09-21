@@ -687,3 +687,157 @@ a:focus-visible {
   max-width: 80rem;
   margin-inline: auto;
 }
+
+/* Dashboard overview cards */
+/*
+  The dashboard's facts used to sit in one dense dl: label and value in the
+  same row, every fact the same visual weight, nothing you could rank at a
+  glance. The card grid gives each concern its own framed box and breaks the
+  old cramp by stacking the metric's small label above a larger bold value,
+  with the actions on a separated footer row. Three columns on a wide screen,
+  two on a tablet, one on a phone.
+*/
+
+.dash-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+@media (max-width: 70rem) {
+  .dash-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 46rem) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dash-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.6rem;
+  flex: none;
+}
+
+.dash-ic svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.dash-ic-blue {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.dash-ic-warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+}
+
+.dash-card-title {
+  margin: 1.1rem 0 1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/*
+  Metrics: label on top, value below. The old layout squeezed "label  value"
+  into one line and they read as a single glued string; two rows with a fixed
+  gap keep a long label and a wide number from colliding.
+*/
+
+.dash-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem 1rem;
+}
+
+.dash-metric .label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin-bottom: 0.35rem;
+}
+
+.dash-metric .val {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Dates, usernames and versions are not headline numbers; keep them a size
+   down so the big figures stay the things you read first. */
+.dash-metric .val-sm {
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.dash-metric .unit {
+  margin-left: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/*
+  The footer row is what the card is for, separated from the numbers by a
+  rule so it does not blend into the last metric.
+*/
+.dash-foot {
+  margin-top: auto;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.dash-foot-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.dash-foot .btn {
+  margin-left: auto;
+}
+
+.dash-foot-ok {
+  margin: 0 0 0 auto;
+  font-size: 0.85rem;
+  color: var(--ok-text);
+  font-weight: 600;
+}

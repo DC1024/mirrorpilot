@@ -1,73 +1,107 @@
 {{define "content"}}
-<section class="card">
+<div class="dash-head">
   <h1>{{ .T "dashboard.title" }}</h1>
   <p class="lead">{{ .T "dashboard.subtitle" }}</p>
+</div>
 
-  <dl class="facts">
-    <div class="fact">
-      <dt>{{ .T "dashboard.state" }}</dt>
-      <dd>
+<div class="dash-grid">
+
+  <!-- 测速 -->
+  <section class="card dash-card">
+    <div class="dash-card-head">
+      <span class="dash-ic dash-ic-blue" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></svg>
+      </span>
+      {{- if .Summary.Probed -}}
+      <span class="pill pill-ok">{{ .T "dashboard.badge_probed" .Summary.Probed }}</span>
+      {{- else -}}
+      <span class="pill pill-warn">{{ .T "dashboard.badge_never" }}</span>
+      {{- end -}}
+    </div>
+    <h2 class="dash-card-title">{{ .T "nav.probe" }}</h2>
+    <div class="dash-metrics">
+      <div class="dash-metric">
+        <div class="label">{{ .T "dashboard.mirrors_probed" }}</div>
+        <div class="val">{{ .Summary.Probed }}<span class="unit">{{ .T "dashboard.unit_measured" }}</span></div>
+      </div>
+      <div class="dash-metric">
+        <div class="label">{{ .T "dashboard.last_probe" }}</div>
+        <div class="val val-sm">
+          {{- if .Summary.LastProbe.IsZero -}}
+          <span class="muted">{{ .T "dashboard.never_probed" }}</span>
+          {{- else -}}
+          <time datetime="{{ .Summary.LastProbe.Format "2006-01-02T15:04:05Z07:00" }}">{{ .Summary.LastProbe.Format "01-02 15:04" }}</time>
+          {{- end -}}
+        </div>
+      </div>
+    </div>
+    <div class="dash-foot">
+      <a class="btn btn-small" href="/probe">{{ .T "probe.run_all" }}</a>
+    </div>
+  </section>
+
+  <!-- 镜像源 -->
+  <section class="card dash-card">
+    <div class="dash-card-head">
+      <span class="dash-ic dash-ic-blue" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+      </span>
+      <span class="pill pill-muted">{{ .T "dashboard.badge_registered" .Summary.Total }}</span>
+    </div>
+    <h2 class="dash-card-title">{{ .T "dashboard.mirrors" }}</h2>
+    <div class="dash-metrics">
+      <div class="dash-metric">
+        <div class="label">{{ .T "dashboard.mirrors_total" }}</div>
+        <div class="val">{{ .Summary.Total }}</div>
+      </div>
+      <div class="dash-metric">
+        <div class="label">{{ .T "dashboard.mirrors_enabled" }}</div>
+        <div class="val">{{ .Summary.Enabled }}<span class="unit">/ {{ .Summary.Total }}</span></div>
+      </div>
+    </div>
+    <div class="dash-foot">
+      <p class="dash-foot-note">{{ .T "dashboard.mirrors_note" }}</p>
+      <a class="btn btn-small" href="/sources">{{ .T "nav.sources" }}</a>
+    </div>
+  </section>
+
+  <!-- 面板状态 -->
+  <section class="card dash-card">
+    <div class="dash-card-head">
+      <span class="dash-ic {{ if .Unlocked }}dash-ic-blue{{ else }}dash-ic-warn{{ end }}" aria-hidden="true">
         {{- if .Unlocked -}}
-        <span class="pill pill-ok">{{ .T "dashboard.state.ready" }}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
         {{- else -}}
-        <span class="pill pill-warn">{{ .T "dashboard.state.locked" }}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         {{- end -}}
-      </dd>
+      </span>
+      {{- if .Unlocked -}}
+      <span class="pill pill-ok">{{ .T "dashboard.state.ready" }}</span>
+      {{- else -}}
+      <span class="pill pill-warn">{{ .T "dashboard.state.locked" }}</span>
+      {{- end -}}
     </div>
-
-    {{ if .Authed }}
-    <div class="fact">
-      <dt>{{ .T "dashboard.signed_in_as" }}</dt>
-      <dd>{{ .User }}</dd>
+    <h2 class="dash-card-title">{{ .T "dashboard.state" }}</h2>
+    <div class="dash-metrics">
+      <div class="dash-metric">
+        <div class="label">{{ .T "dashboard.version" }}</div>
+        <div class="val val-sm">v{{ .Version }}</div>
+      </div>
+      <div class="dash-metric">
+        <div class="label">{{ .T "dashboard.signed_in_as" }}</div>
+        <div class="val val-sm">{{ .User }}</div>
+      </div>
     </div>
-    {{ end }}
-
-    <div class="fact">
-      <dt>{{ .T "dashboard.version" }}</dt>
-      <dd>v{{ .Version }}</dd>
+    <div class="dash-foot">
+      {{- if not .Unlocked -}}
+      <a class="btn btn-small btn-primary" href="/unlock">{{ .T "action.unlock" }}</a>
+      {{- else -}}
+      <span class="dash-foot-ok">{{ .T "dashboard.state_all_ok" }}</span>
+      {{- end -}}
     </div>
-  </dl>
+  </section>
 
-  {{ if not .Unlocked }}
-  <a class="btn btn-primary" href="/unlock">{{ .T "action.unlock" }}</a>
-  {{ end }}
-</section>
-
-<section class="card">
-  <h2>{{ .T "dashboard.mirrors" }}</h2>
-
-  <dl class="facts">
-    <div class="fact">
-      <dt>{{ .T "dashboard.mirrors_total" }}</dt>
-      <dd>{{ .Summary.Total }}</dd>
-    </div>
-    <div class="fact">
-      <dt>{{ .T "dashboard.mirrors_enabled" }}</dt>
-      <dd>{{ .Summary.Enabled }}</dd>
-    </div>
-    <div class="fact">
-      <dt>{{ .T "dashboard.mirrors_probed" }}</dt>
-      <dd>{{ .Summary.Probed }}</dd>
-    </div>
-    <div class="fact">
-      <dt>{{ .T "dashboard.last_probe" }}</dt>
-      <dd>
-        {{- if .Summary.LastProbe.IsZero -}}
-        <span class="muted">{{ .T "dashboard.never_probed" }}</span>
-        {{- else -}}
-        <time datetime="{{ .Summary.LastProbe.Format "2006-01-02T15:04:05Z07:00" }}">{{ .Summary.LastProbe.Format "2006-01-02 15:04 MST" }}</time>
-        {{- end -}}
-      </dd>
-    </div>
-  </dl>
-
-  <p class="note">{{ .T "dashboard.mirrors_note" }}</p>
-
-  <div class="form-actions">
-    <a class="btn" href="/sources">{{ .T "nav.sources" }}</a>
-    <a class="btn" href="/probe">{{ .T "nav.probe" }}</a>
-  </div>
-</section>
+</div>
 
 <section class="card">
   <h2>{{ .T "disclaimer.title" }}</h2>
