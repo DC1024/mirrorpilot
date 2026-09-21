@@ -553,7 +553,7 @@ func TestProtectedPagesRedirectWhenLoggedOut(t *testing.T) {
 	// Every page behind requireSession belongs on this list. A new page that
 	// forgot the wrapper would look fine in a browser that is already logged
 	// in, and would leak the mirror list to anyone who is not.
-	for _, path := range []string{"/dashboard", "/sources", "/probe", "/settings", "/password", "/unlock"} {
+	for _, path := range []string{"/dashboard", "/sources", "/probe", "/config", "/sync", "/settings", "/password", "/unlock"} {
 		t.Run(path, func(t *testing.T) {
 			resp := h.get(path)
 			if resp.StatusCode != http.StatusSeeOther {

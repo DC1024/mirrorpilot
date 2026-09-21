@@ -1,0 +1,230 @@
+{{define "content"}}
+{{ with .SyncPage }}
+
+<section class="card">
+  <h1>{{ $.T "sync.title" }}</h1>
+  <p class="lead">{{ $.T "sync.subtitle" }}</p>
+
+  {{ if not .Unlocked }}
+  <p class="alert alert-error" role="alert">{{ $.T "sync.locked" }}</p>
+  {{ end }}
+
+  {{ if .Error }}
+  <p class="alert alert-error" role="alert">
+    {{ .Error }}{{ if .Detail }} <span class="note">{{ .Detail }}</span>{{ end }}
+  </p>
+  {{ end }}
+</section>
+
+<section class="card">
+  <h2>{{ $.T "sync.workflow_title" }}</h2>
+  <p>{{ $.T "sync.workflow_body" }}</p>
+
+  <dl class="facts">
+    <div class="fact">
+      <dt>{{ $.T "sync.workflow_path" }}</dt>
+      <dd><code>.github/workflows/{{ .WorkflowFileName }}</code></dd>
+    </div>
+  </dl>
+
+  <div class="file-head">
+    <span class="field-label">{{ .WorkflowFileName }}</span>
+    <button class="btn btn-small" type="button" data-copy="#workflow-yaml"
+            data-copy-done="{{ $.T "action.copied" }}"
+            data-copy-failed="{{ $.T "action.copy_failed" }}">{{ $.T "action.copy" }}</button>
+  </div>
+  <pre class="file" id="workflow-yaml">{{ .WorkflowYAML }}</pre>
+
+  <ul class="list">
+    <li>{{ $.T "sync.workflow_secret_username" }}</li>
+    <li>{{ $.T "sync.workflow_secret_password" }}</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>{{ $.T "sync.settings_title" }}</h2>
+
+  <form method="post" action="/sync/settings" class="stack">
+    {{ template "csrf" $ }}
+
+    <fieldset class="group">
+      <legend>{{ $.T "sync.repository" }}</legend>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.owner" }}</span>
+        <input name="owner" type="text" value="{{ .Spec.Owner }}" autocomplete="off" spellcheck="false">
+      </label>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.repo" }}</span>
+        <input name="repo" type="text" value="{{ .Spec.Repo }}" autocomplete="off" spellcheck="false">
+      </label>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.workflow" }}</span>
+        <input name="workflow" type="text" value="{{ .Spec.Workflow }}" autocomplete="off" spellcheck="false"
+               placeholder="{{ $.T "sync.field.workflow_placeholder" }}">
+      </label>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.ref" }}</span>
+        <input name="ref" type="text" value="{{ .Spec.Ref }}" autocomplete="off" spellcheck="false"
+               placeholder="{{ $.T "sync.field.ref_placeholder" }}">
+        <span class="field-hint">{{ $.T "sync.field.ref_hint" }}</span>
+      </label>
+    </fieldset>
+
+    <fieldset class="group">
+      <legend>{{ $.T "sync.target" }}</legend>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.registry" }}</span>
+        <input name="registry" type="text" value="{{ .Target.Registry }}" autocomplete="off" spellcheck="false"
+               placeholder="{{ $.T "sync.field.registry_placeholder" }}">
+      </label>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.namespace" }}</span>
+        <input name="namespace" type="text" value="{{ .Target.Namespace }}" autocomplete="off" spellcheck="false">
+        <span class="field-hint">{{ $.T "sync.field.namespace_hint" }}</span>
+      </label>
+    </fieldset>
+
+    <fieldset class="group">
+      <legend>{{ $.T "sync.credentials" }}</legend>
+      <p class="field-hint">{{ $.T "sync.credentials_hint" }}</p>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.github_token" }}</span>
+        <input name="github_token" type="password" value="" autocomplete="new-password" spellcheck="false">
+        <span class="field-hint">
+          {{ if .HasToken }}{{ $.T "sync.credential_set" }}{{ else }}{{ $.T "sync.credential_unset" }}{{ end }}
+          · {{ $.T "sync.credential_keep" }}
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" name="clear_github_token" value="1">
+        <span>{{ $.T "sync.credential_clear" }}</span>
+      </label>
+
+      <label class="field">
+        <span class="field-label">{{ $.T "sync.field.acr_password" }}</span>
+        <input name="acr_password" type="password" value="" autocomplete="new-password" spellcheck="false">
+        <span class="field-hint">
+          {{ if .HasPassword }}{{ $.T "sync.credential_set" }}{{ else }}{{ $.T "sync.credential_unset" }}{{ end }}
+          · {{ $.T "sync.credential_keep" }}
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" name="clear_acr_password" value="1">
+        <span>{{ $.T "sync.credential_clear" }}</span>
+      </label>
+    </fieldset>
+
+    <button class="btn btn-primary" type="submit">{{ $.T "action.save" }}</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ $.T "sync.dispatch_title" }}</h2>
+  <p>{{ $.T "sync.dispatch_body" }}</p>
+
+  {{ if .Configured }}
+  <form method="post" action="/sync/dispatch" class="stack">
+    {{ template "csrf" $ }}
+    <label class="field">
+      <span class="field-label">{{ $.T "sync.dispatch_images" }}</span>
+      <textarea name="images" rows="6" spellcheck="false" autocomplete="off"
+                placeholder="{{ $.T "sync.dispatch_placeholder" }}">{{ .Images }}</textarea>
+      <span class="field-hint">{{ $.T "sync.dispatch_hint" }}</span>
+    </label>
+    <button class="btn btn-primary" type="submit">{{ $.T "sync.dispatch_submit" }}</button>
+  </form>
+  {{ else }}
+  <p class="alert alert-error" role="alert">{{ $.T "sync.not_configured" }}</p>
+  {{ end }}
+</section>
+
+<section class="card">
+  <h2>{{ $.T "sync.runs_title" }}</h2>
+  <p class="note">{{ $.T "sync.runs_note" }}</p>
+  <p><a class="btn btn-small" href="/sync?runs=1">{{ $.T "sync.runs_load" }}</a></p>
+
+  {{ if .RunsError }}
+  <p class="alert alert-error" role="alert">{{ .RunsError }}</p>
+  {{ end }}
+
+  {{ if .Runs }}
+  <div class="scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{ $.T "sync.col.run" }}</th>
+          <th>{{ $.T "sync.col.state" }}</th>
+          <th>{{ $.T "sync.col.branch" }}</th>
+          <th>{{ $.T "sync.col.started" }}</th>
+          <th><span class="sr-only">{{ $.T "sync.col.details" }}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Runs }}
+        <tr>
+          <td><span class="rowtitle">#{{ .ID }}</span></td>
+          <td><span class="pill {{ .Class }}">{{ .Label }}</span></td>
+          <td><code>{{ .Branch }}</code></td>
+          <td class="num">{{ .Created }}</td>
+          <td class="row-actions">
+            <a class="btn btn-small" href="/sync?runs=1&amp;run={{ .ID }}">{{ $.T "sync.details" }}</a>
+            {{ if .URL }}
+            <a class="btn btn-small" href="{{ .URL }}" target="_blank" rel="noopener noreferrer">{{ $.T "sync.on_github" }}</a>
+            {{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ end }}
+
+  {{ if .Selected }}
+  <h3>{{ $.T "sync.jobs_title" }} #{{ .Selected }}</h3>
+
+  {{ if .JobsError }}
+  <p class="alert alert-error" role="alert">{{ .JobsError }}</p>
+  {{ end }}
+
+  {{ if .Jobs }}
+  <div class="scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{ $.T "sync.col.job" }}</th>
+          <th>{{ $.T "sync.col.state" }}</th>
+          <th>{{ $.T "sync.col.duration" }}</th>
+          <th><span class="sr-only">{{ $.T "sync.col.details" }}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Jobs }}
+        <tr>
+          <td><span class="rowtitle">{{ .Name }}</span></td>
+          <td><span class="pill {{ .Class }}">{{ .Label }}</span></td>
+          <td class="num">{{ if .Duration }}{{ .Duration }}{{ else }}—{{ end }}</td>
+          <td class="row-actions">
+            {{ if .URL }}
+            <a class="btn btn-small" href="{{ .URL }}" target="_blank" rel="noopener noreferrer">{{ $.T "sync.on_github" }}</a>
+            {{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ end }}
+  {{ end }}
+</section>
+
+{{ end }}
+{{end}}

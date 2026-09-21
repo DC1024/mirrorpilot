@@ -235,13 +235,15 @@ p {
 
 input,
 select,
+textarea,
 button {
   font: inherit;
   color: inherit;
 }
 
 input,
-select {
+select,
+textarea {
   padding: 0.5rem 0.6rem;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -249,8 +251,19 @@ select {
   min-width: 0;
 }
 
+textarea {
+  /* Vertically resizable only: let someone make room for a pasted document,
+     but not drag the field wider than the card holding it. */
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
 input:focus-visible,
 select:focus-visible,
+textarea:focus-visible,
 button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--accent);
@@ -530,6 +543,53 @@ a:focus-visible {
   font-family: var(--mono);
   font-size: 0.82rem;
   word-break: break-all;
+}
+
+/* Generated documents */
+
+/*
+  A file the visitor is meant to copy out.
+
+  Scrollable and capped in height rather than allowed to run the length of the
+  page: a hosts.toml with a dozen mirrors would otherwise push everything below
+  it off the screen, and the copy button it belongs to is at the top.
+*/
+.file {
+  margin: 0.35rem 0 0;
+  padding: 0.85rem 1rem;
+  max-height: 26rem;
+  overflow: auto;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* The filename and its copy button, above the document they belong to. */
+.file-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+/*
+  The off-screen box the copy button writes into.
+
+  Kept in the stylesheet rather than set from script, because the panel's
+  Content-Security-Policy has no 'unsafe-inline' and a style set through the
+  CSSOM is a question nobody should have to answer twice.
+*/
+.copyarea {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  opacity: 0;
 }
 
 /* Sparklines */

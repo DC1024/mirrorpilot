@@ -38,6 +38,8 @@ var pages = []string{
 	"dashboard",
 	"sources",
 	"probe",
+	"config",
+	"sync",
 	"settings",
 	"password",
 	"error",
@@ -246,6 +248,14 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /probe", s.requireSession(s.handleProbe))
 	mux.HandleFunc("POST /probe", s.requireSession(s.handleProbeRun))
 
+	mux.HandleFunc("GET /config", s.requireSession(s.handleConfig))
+	mux.HandleFunc("POST /config", s.requireSession(s.handleConfigMerge))
+	mux.HandleFunc("POST /config/relay", s.requireSession(s.handleRelaySave))
+
+	mux.HandleFunc("GET /sync", s.requireSession(s.handleSync))
+	mux.HandleFunc("POST /sync/settings", s.requireSession(s.handleSyncSettings))
+	mux.HandleFunc("POST /sync/dispatch", s.requireSession(s.handleSyncDispatch))
+
 	mux.HandleFunc("GET /settings", s.requireSession(s.handleSettingsForm))
 	mux.HandleFunc("POST /settings", s.requireSession(s.handleSettings))
 
@@ -398,6 +408,12 @@ type pageData struct {
 	// ProbePage backs the speed test page.
 	ProbePage *probePage
 
+	// ConfigPage backs the generated-configuration page.
+	ConfigPage *configPage
+
+	// SyncPage backs the image relocation page.
+	SyncPage *syncPage
+
 	// SettingsPage backs the preferences page.
 	SettingsPage *settingsPage
 
@@ -506,6 +522,12 @@ var flashKeys = map[string]bool{
 	"probe.ran":               true,
 	"probe.error.unavailable": true,
 	"probe.error.target":      true,
+
+	"config.relay.saved":   true,
+	"config.relay.cleared": true,
+
+	"sync.saved":      true,
+	"sync.dispatched": true,
 }
 
 // flash reads the one-shot message from the query string and translates it.

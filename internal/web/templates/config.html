@@ -1,0 +1,177 @@
+{{define "content"}}
+{{ with .ConfigPage }}
+
+<section class="card">
+  <h1>{{ $.T "config.title" }}</h1>
+  <p class="lead">{{ $.T "config.subtitle" }}</p>
+</section>
+
+<section class="card">
+  <h2>{{ $.T "config.mirrors_title" }}</h2>
+  <p class="note">{{ $.T "config.mirrors_note" }}</p>
+
+  {{ if .Mirrors }}
+  <div class="scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{ $.T "config.col.rank" }}</th>
+          <th>{{ $.T "config.col.mirror" }}</th>
+          <th>{{ $.T "config.col.address" }}</th>
+          <th>{{ $.T "config.col.throughput" }}</th>
+          <th>{{ $.T "config.col.note" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Mirrors }}
+        <tr>
+          <td class="num">{{ .Rank }}</td>
+          <td><span class="rowtitle">{{ .Name }}</span></td>
+          <td><code>{{ .Endpoint }}</code></td>
+          <td>
+            {{ if .Throughput }}<span class="num">{{ .Throughput }}</span>
+            {{ else }}<span class="muted">—</span>{{ end }}
+          </td>
+          <td>
+            {{ if .Unmeasured }}<span class="pill pill-muted">{{ $.T "config.unmeasured" }}</span>{{ end }}
+            {{ if .Insecure }}<span class="pill pill-warn">{{ $.T "config.insecure" }}</span>{{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ else }}
+  <p class="alert alert-error" role="alert">{{ $.T "config.empty" }}</p>
+  {{ end }}
+
+  {{ if .Excluded }}
+  <p class="field-hint">{{ $.T "config.excluded_hint" .Excluded }}</p>
+  {{ end }}
+</section>
+
+{{ if .Warnings }}
+<section class="card">
+  <h2>{{ $.T "config.warnings_title" }}</h2>
+  <ul class="list">
+    {{ range .Warnings }}
+    <li>
+      {{ .Message }}
+      {{ if .Names }}<code>{{ range $i, $name := .Names }}{{ if $i }}, {{ end }}{{ $name }}{{ end }}</code>{{ end }}
+    </li>
+    {{ end }}
+  </ul>
+</section>
+{{ end }}
+
+<section class="card">
+  <h2>{{ $.T "config.daemon_title" }}</h2>
+  <p>{{ $.T "config.daemon_body" }}</p>
+
+  <form method="post" action="/config" class="stack">
+    {{ template "csrf" $ }}
+    <label class="field">
+      <span class="field-label">{{ $.T "config.existing_label" }}</span>
+      <textarea name="existing" rows="6" spellcheck="false" autocomplete="off"
+                placeholder="{{ $.T "config.existing_placeholder" }}">{{ .Existing }}</textarea>
+      <span class="field-hint">{{ $.T "config.existing_hint" }}</span>
+    </label>
+    <button class="btn" type="submit">{{ $.T "config.existing_submit" }}</button>
+  </form>
+
+  {{ if .ExistingError }}
+  <p class="alert alert-error" role="alert">{{ .ExistingError }}</p>
+  {{ end }}
+
+  {{ if .DaemonJSON }}
+  <div class="file-head">
+    <span class="field-label">{{ $.T "config.daemon_filename" }}</span>
+    <button class="btn btn-small" type="button" data-copy="#daemon-json"
+            data-copy-done="{{ $.T "action.copied" }}"
+            data-copy-failed="{{ $.T "action.copy_failed" }}">{{ $.T "action.copy" }}</button>
+  </div>
+  <pre class="file" id="daemon-json">{{ .DaemonJSON }}</pre>
+  {{ else if .DaemonError }}
+  <p class="alert alert-error" role="alert">{{ .DaemonError }}</p>
+  {{ end }}
+</section>
+
+<section class="card">
+  <h2>{{ $.T "config.containerd_title" }}</h2>
+  <p>{{ $.T "config.containerd_body" }}</p>
+
+  <dl class="facts">
+    <div class="fact">
+      <dt>{{ $.T "config.containerd_path" }}</dt>
+      <dd><code>{{ .ContainerdPath }}</code></dd>
+    </div>
+  </dl>
+
+  {{ if .ContainerdTOML }}
+  <div class="file-head">
+    <span class="field-label">{{ $.T "config.containerd_filename" }}</span>
+    <button class="btn btn-small" type="button" data-copy="#hosts-toml"
+            data-copy-done="{{ $.T "action.copied" }}"
+            data-copy-failed="{{ $.T "action.copy_failed" }}">{{ $.T "action.copy" }}</button>
+  </div>
+  <pre class="file" id="hosts-toml">{{ .ContainerdTOML }}</pre>
+  {{ end }}
+</section>
+
+<section class="card">
+  <h2>{{ $.T "config.relay_title" }}</h2>
+  <p>{{ $.T "config.relay_body" }}</p>
+
+  <ul class="list">
+    {{ range .Relay.Origins }}<li><code>{{ . }}</code></li>{{ end }}
+  </ul>
+
+  <form method="post" action="/config/relay" class="stack">
+    {{ template "csrf" $ }}
+    <label class="field">
+      <span class="field-label">{{ $.T "config.relay_endpoint" }}</span>
+      <input name="relay_endpoint" type="text" value="{{ .Relay.Endpoint }}"
+             autocomplete="off" spellcheck="false"
+             placeholder="{{ $.T "config.relay_endpoint_placeholder" }}">
+      <span class="field-hint">{{ $.T "config.relay_endpoint_hint" }}</span>
+    </label>
+    <button class="btn" type="submit">{{ $.T "config.relay_endpoint_save" }}</button>
+  </form>
+
+  <form method="get" action="/config" class="stack">
+    <label class="field">
+      <span class="field-label">{{ $.T "config.relay_image" }}</span>
+      <input name="image" type="text" value="{{ .Relay.Image }}"
+             autocomplete="off" spellcheck="false"
+             placeholder="{{ $.T "config.relay_image_placeholder" }}">
+      <span class="field-hint">{{ $.T "config.relay_image_hint" }}</span>
+    </label>
+    <button class="btn" type="submit">{{ $.T "config.relay_build" }}</button>
+  </form>
+
+  {{ if .Relay.Error }}
+  <p class="alert alert-error" role="alert">
+    {{ .Relay.Error }}{{ if .Relay.Detail }} <span class="note">{{ .Relay.Detail }}</span>{{ end }}
+  </p>
+  {{ end }}
+
+  {{ if .Relay.Address }}
+  <dl class="facts">
+    <div class="fact">
+      <dt>{{ $.T "config.relay_result" }}</dt>
+      <dd><code>{{ .Relay.Address }}</code></dd>
+    </div>
+  </dl>
+
+  <div class="file-head">
+    <span class="field-label">{{ $.T "config.relay_command" }}</span>
+    <button class="btn btn-small" type="button" data-copy="#relay-command"
+            data-copy-done="{{ $.T "action.copied" }}"
+            data-copy-failed="{{ $.T "action.copy_failed" }}">{{ $.T "action.copy" }}</button>
+  </div>
+  <pre class="file" id="relay-command">{{ .Relay.Command }}</pre>
+  {{ end }}
+</section>
+
+{{ end }}
+{{end}}
