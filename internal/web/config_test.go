@@ -69,7 +69,7 @@ func TestConfigRanksTheEnabledDockerHubMirrors(t *testing.T) {
 	// A mirror that ships switched off is not a candidate. Writing it into
 	// someone's daemon.json would make the enable flag a decoration. NJU
 	// ships off because it refuses every off-campus request.
-	for _, off := range []string{"mirror.ccs.tencentyun.com", "docker.nju.edu.cn"} {
+	for _, off := range []string{"docker.nju.edu.cn"} {
 		if strings.Contains(body, off) {
 			t.Errorf("a switched-off mirror (%s) reached the generated configuration", off)
 		}

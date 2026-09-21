@@ -267,7 +267,7 @@ func TestProbeBatchCoversEnabledDockerHubMirrorsOnly(t *testing.T) {
 		switch id {
 		case "ghcr-only":
 			t.Error("a mirror that does not proxy Docker Hub was measured and would be blamed for the 404")
-		case "nju", "tencent-ccs", "rat-dev":
+		case "nju", "rat-dev":
 			t.Errorf("a switched-off mirror (%s) was measured", id)
 		}
 	}

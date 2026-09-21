@@ -48,18 +48,6 @@
     "enabled": false
   },
   {
-    "id": "tencent-ccs",
-    "name": "Tencent Cloud (VPC only)",
-    "url": "https://mirror.ccs.tencentyun.com",
-    "homepage": "https://cloud.tencent.com",
-    "scope": ["dockerhub"],
-    "provider": "cloud",
-    "trust": "verified",
-    "note": "Tencent Cloud's own free Docker Hub mirror for its customers, reachable only from inside a Tencent Cloud VPC. Enable it on an instance that lives there; probing it from anywhere else will always fail, which is expected rather than a fault.",
-    "builtin": true,
-    "enabled": false
-  },
-  {
     "id": "rat-dev",
     "name": "hub.rat.dev",
     "url": "https://hub.rat.dev",
