@@ -264,7 +264,7 @@ func (p *Prober) checkConnectivity(ctx context.Context, base string) (Layer, aut
 		// Still alive: the host is up and speaking the protocol, which is all
 		// layer 1 asks. Whether we may pull from it is layer 3's problem.
 		return Layer{Status: StatusUnauthorized, Duration: elapsed,
-			Detail: "registry requires authentication"},
+				Detail: "registry requires authentication"},
 			parseChallenge(resp.Header.Get("WWW-Authenticate"))
 	case http.StatusTooManyRequests:
 		return Layer{Status: StatusRateLimited, Duration: elapsed, Detail: retryAfter(resp)}, authChallenge{}
