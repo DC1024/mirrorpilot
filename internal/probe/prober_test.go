@@ -1285,6 +1285,24 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
+func TestInterruptedDetailSeparatesZeroFromPartial(t *testing.T) {
+	// The two situations are different faults and the wording has to keep
+	// them apart: "after 0 B" reads as a rounding artefact and hides that
+	// nothing at all was sent.
+	none := interruptedDetail(0)
+	partial := interruptedDetail(4096)
+
+	if none == partial {
+		t.Fatalf("zero and partial reads share the wording %q", none)
+	}
+	if strings.Contains(none, "0 B") {
+		t.Errorf("zero-byte detail mentions a byte count: %q", none)
+	}
+	if !strings.Contains(partial, "4.0 KiB") {
+		t.Errorf("partial detail does not name the amount: %q", partial)
+	}
+}
+
 func TestRetryAfter(t *testing.T) {
 	cases := map[string]struct {
 		header string

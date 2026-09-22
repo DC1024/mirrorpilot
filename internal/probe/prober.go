@@ -586,12 +586,7 @@ func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifest
 
 	layer := Layer{Status: StatusOK, Duration: elapsed}
 	if err != nil {
-		// A partial transfer is still a throughput sample — and a useful one,
-		// since it usually means the connection dropped mid-flight. Saying how
-		// much arrived before the drop is what tells a dropped connection
-		// apart from a blocked one.
-		layer = Layer{Status: StatusFailed, Duration: elapsed,
-			Detail: fmt.Sprintf("blob transfer was interrupted after %s", HumanBytes(read))}
+		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: interruptedDetail(read)}
 	}
 
 	complete := read >= blob.Size
@@ -646,8 +641,7 @@ func (p *Prober) fetchBlobAt(ctx context.Context, u *url.URL, token string, blob
 
 	layer := Layer{Status: StatusOK, Duration: elapsed}
 	if err != nil {
-		layer = Layer{Status: StatusFailed, Duration: elapsed,
-			Detail: fmt.Sprintf("blob transfer was interrupted after %s", HumanBytes(read))}
+		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: interruptedDetail(read)}
 	}
 
 	complete := read >= blob.Size
@@ -812,6 +806,20 @@ func HumanBytes(n int64) string {
 		i++
 	}
 	return fmt.Sprintf("%.1f %s", value, units[i])
+}
+
+// interruptedDetail words a broken blob read.
+//
+// Where the transfer stopped is the whole diagnosis, and it is the one fact
+// the counters can still supply after the connection is gone. No bytes at all
+// means the mirror answered the request and then sent nothing — a different
+// fault from one that streams for a while and gives up, and the two should
+// not share a sentence that turns the second into a rounded-down zero.
+func interruptedDetail(read int64) string {
+	if read <= 0 {
+		return "blob transfer was interrupted before any data arrived"
+	}
+	return fmt.Sprintf("blob transfer was interrupted after %s", HumanBytes(read))
 }
 
 // descriptor is one entry in an index, or one blob in a manifest.
