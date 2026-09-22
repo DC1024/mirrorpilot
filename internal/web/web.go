@@ -23,6 +23,7 @@ import (
 
 	"github.com/DC1024/mirrorpilot/internal/auth"
 	"github.com/DC1024/mirrorpilot/internal/i18n"
+	"github.com/DC1024/mirrorpilot/internal/probe"
 	"github.com/DC1024/mirrorpilot/internal/store"
 )
 
@@ -78,6 +79,14 @@ type Options struct {
 	// instead of offering a button that cannot work.
 	Probe ProbeFactory
 
+	// Activity is the live view of the probes running in this process.
+	//
+	// The same value has to be given to the probe engine as its Observer, or
+	// the page will poll for progress nobody publishes. One that is missing is
+	// not an error: the speed test page then falls back to counting seconds,
+	// which is what it did before this existed.
+	Activity *probe.Activity
+
 	// Version is shown in the footer.
 	Version string
 
@@ -94,13 +103,14 @@ type Options struct {
 
 // Server is the panel's HTTP surface.
 type Server struct {
-	store   *store.Store
-	auth    *auth.Manager
-	i18n    *i18n.Bundle
-	probe   ProbeFactory
-	log     *slog.Logger
-	version string
-	secure  bool
+	store    *store.Store
+	auth     *auth.Manager
+	i18n     *i18n.Bundle
+	probe    ProbeFactory
+	activity *probe.Activity
+	log      *slog.Logger
+	version  string
+	secure   bool
 
 	tmpl map[string]*template.Template
 	mux  *http.ServeMux
@@ -129,15 +139,24 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 
+	// An activity of its own when none was supplied, so the progress endpoint
+	// always has something coherent to read. Without one wired to the engine it
+	// simply never reports a run, which the page handles by counting seconds.
+	activity := opts.Activity
+	if activity == nil {
+		activity = &probe.Activity{}
+	}
+
 	s := &Server{
-		store:   opts.Store,
-		auth:    opts.Auth,
-		i18n:    opts.I18n,
-		probe:   opts.Probe,
-		log:     log,
-		version: opts.Version,
-		secure:  opts.Secure,
-		tmpl:    tmpl,
+		store:    opts.Store,
+		auth:     opts.Auth,
+		i18n:     opts.I18n,
+		probe:    opts.Probe,
+		activity: activity,
+		log:      log,
+		version:  opts.Version,
+		secure:   opts.Secure,
+		tmpl:     tmpl,
 	}
 
 	s.mux = s.routes()
@@ -247,6 +266,10 @@ func (s *Server) routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /probe", s.requireSession(s.handleProbe))
 	mux.HandleFunc("POST /probe", s.requireSession(s.handleProbeRun))
+
+	// Polled by the speed test page while a batch is in flight, so it answers
+	// in JSON rather than HTML. A GET because it reports and changes nothing.
+	mux.HandleFunc("GET /probe/progress", s.requireSession(s.handleProbeProgress))
 
 	mux.HandleFunc("GET /config", s.requireSession(s.handleConfig))
 	mux.HandleFunc("POST /config", s.requireSession(s.handleConfigMerge))

@@ -2,9 +2,11 @@ package probe
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -67,6 +69,13 @@ type stub struct {
 	blobStatus int
 	blobRetry  string
 	blobs      map[string][]byte
+
+	// blobDelay reproduces a mirror that answers the blob request and then
+	// takes its time producing the body. The delay is applied after the
+	// headers are flushed, so it lands where a slow mirror's does — inside the
+	// read, where it is the transfer budget and not the request budget that
+	// decides the outcome.
+	blobDelay time.Duration
 
 	// delay is applied to every request, for timeout and concurrency tests.
 	delay time.Duration
@@ -243,6 +252,13 @@ func serveBlob(w http.ResponseWriter, r *http.Request, dig string, s stub) {
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return
+	}
+	if s.blobDelay > 0 {
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(s.blobDelay)
 	}
 	_, _ = w.Write(body)
 }
@@ -1285,22 +1301,332 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
-func TestInterruptedDetailSeparatesZeroFromPartial(t *testing.T) {
-	// The two situations are different faults and the wording has to keep
-	// them apart: "after 0 B" reads as a rounding artefact and hides that
-	// nothing at all was sent.
-	none := interruptedDetail(0)
-	partial := interruptedDetail(4096)
+func TestInterruptedDetailCarriesTheReason(t *testing.T) {
+	// Three things have to be told apart, and the byte count alone does not do
+	// it: how far the transfer got, and whether our own clock or the mirror
+	// stopped it. "Interrupted after 102.6 KiB" reads the same either way, and
+	// the two call for opposite conclusions about the mirror — the first says
+	// the budget was wrong, the second says the mirror is.
+	timedOut := interruptedDetail(4096, context.DeadlineExceeded)
+	stopped := interruptedDetail(4096, errors.New("read: connection reset by peer"))
+	none := interruptedDetail(0, context.DeadlineExceeded)
 
-	if none == partial {
+	if timedOut == stopped {
+		t.Fatalf("a deadline and a reset share the wording %q", timedOut)
+	}
+	if none == timedOut {
 		t.Fatalf("zero and partial reads share the wording %q", none)
 	}
+	if !strings.Contains(timedOut, "timed out") {
+		t.Errorf("the deadline was not named: %q", timedOut)
+	}
+	if !strings.Contains(stopped, "connection reset") {
+		t.Errorf("the mirror's own reason was dropped: %q", stopped)
+	}
+	if !strings.Contains(timedOut, "4.0 KiB") {
+		t.Errorf("the partial read does not name the amount: %q", timedOut)
+	}
+	// "after 0 B" reads as a rounding artefact and hides that nothing at all
+	// was sent.
 	if strings.Contains(none, "0 B") {
 		t.Errorf("zero-byte detail mentions a byte count: %q", none)
 	}
-	if !strings.Contains(partial, "4.0 KiB") {
-		t.Errorf("partial detail does not name the amount: %q", partial)
+	if !strings.Contains(none, "before any data arrived") {
+		t.Errorf("zero-byte detail does not say that nothing arrived: %q", none)
 	}
+}
+
+// Layer 4 measures a transfer, and a transfer is not a round trip.
+//
+// This is the test for the bug that misdiagnosed three working mirrors: one
+// deadline covered every layer, so a mirror that needed longer than the
+// answering budget to deliver a blob was reported as having interrupted the
+// transfer. The mirror was fine; the clock was wrong; and the page said so
+// with the confidence of a measurement.
+func TestLayerFourUsesItsOwnBudget(t *testing.T) {
+	blob := bytes.Repeat([]byte("layer content "), 64)
+	child := mustJSON(t, testImage{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Layers:    []testDescriptor{{Digest: digestOf(blob), Size: int64(len(blob))}},
+	})
+
+	srv, src, _ := newStub(t, stub{
+		manifests: map[string]stubManifest{"latest": {body: child}},
+		blobs:     map[string][]byte{digestOf(blob): blob},
+		// Slower than the answering budget and well inside the transfer one.
+		blobDelay: 1200 * time.Millisecond,
+	})
+
+	p := newProber(t, srv, func(o *Options) {
+		o.Timeout = time.Second
+		o.BlobTimeout = 5 * time.Second
+	})
+
+	got := p.Probe(t.Context(), src)
+
+	if got.Throughput.Status != StatusOK {
+		t.Fatalf("a blob delivered inside the transfer budget was reported as %q: %s",
+			got.Throughput.Status, got.Throughput.Detail)
+	}
+	if got.Bytes != int64(len(blob)) {
+		t.Errorf("read %d bytes, want %d", got.Bytes, len(blob))
+	}
+	if got.BPS() <= 0 {
+		t.Error("a completed transfer produced no rate")
+	}
+}
+
+// And when the transfer budget is exceeded, the failure says so.
+//
+// A timeout is a statement about patience, not about the mirror's honesty, and
+// the detail has to carry that distinction — including the case where the body
+// never started, which is the one that used to read "interrupted after 0 B".
+func TestBlobTimeoutSaysItTimedOut(t *testing.T) {
+	blob := bytes.Repeat([]byte("layer content "), 64)
+	child := mustJSON(t, testImage{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Layers:    []testDescriptor{{Digest: digestOf(blob), Size: int64(len(blob))}},
+	})
+
+	srv, src, _ := newStub(t, stub{
+		manifests: map[string]stubManifest{"latest": {body: child}},
+		blobs:     map[string][]byte{digestOf(blob): blob},
+		blobDelay: 2 * time.Second,
+	})
+
+	p := newProber(t, srv, func(o *Options) {
+		o.Timeout = time.Second
+		o.BlobTimeout = 250 * time.Millisecond
+	})
+
+	got := p.Probe(t.Context(), src)
+
+	if got.Status != StatusFailed {
+		t.Fatalf("verdict = %q, want a failure", got.Status)
+	}
+	if !strings.Contains(got.Detail, "timed out") {
+		t.Errorf("detail = %q, want it to name the timeout", got.Detail)
+	}
+	if !strings.Contains(got.Detail, "before any data arrived") {
+		t.Errorf("detail = %q, want it to say nothing was sent", got.Detail)
+	}
+}
+
+// recordingObserver keeps the events a probe produced, in order.
+type recordingObserver struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func (r *recordingObserver) Observe(event Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+// steps returns the events as "layer/phase", in order. An event about the
+// whole probe rather than one layer has no layer to name.
+func (r *recordingObserver) steps() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := make([]string, 0, len(r.events))
+	for _, event := range r.events {
+		if event.Layer == "" {
+			out = append(out, string(event.Phase))
+			continue
+		}
+		out = append(out, string(event.Layer)+"/"+string(event.Phase))
+	}
+	return out
+}
+
+// The page names the layer being measured, so every layer has to announce
+// itself and every announcement has to be closed.
+func TestObserverSeesEveryLayerInOrder(t *testing.T) {
+	blob := []byte("some layer content, long enough to time")
+	child := mustJSON(t, testImage{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Layers:    []testDescriptor{{Digest: digestOf(blob), Size: int64(len(blob))}},
+	})
+
+	srv, src, _ := newStub(t, stub{
+		manifests: map[string]stubManifest{"latest": {body: child}},
+		blobs:     map[string][]byte{digestOf(blob): blob},
+	})
+
+	seen := &recordingObserver{}
+	p := newProber(t, srv, func(o *Options) { o.Observer = seen })
+
+	if got := p.Probe(t.Context(), src); got.Status != StatusOK {
+		t.Fatalf("the fixture did not pass: %q %s", got.Status, got.Detail)
+	}
+
+	want := []string{
+		"connect/started", "connect/finished",
+		"token/started", "token/finished",
+		"manifest/started", "manifest/finished",
+		"throughput/started", "throughput/finished",
+		"done",
+	}
+
+	got := seen.steps()
+	if len(got) != len(want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("events = %v, want %v", got, want)
+		}
+	}
+}
+
+// A mirror that fails at the first layer never runs the other three, and the
+// watcher still has to be told the probe is over — otherwise the page keeps it
+// on screen as in-flight for as long as it is open.
+func TestObserverIsToldWhenAProbeEndsEarly(t *testing.T) {
+	srv, src, _ := newStub(t, stub{connect: http.StatusInternalServerError})
+
+	seen := &recordingObserver{}
+	p := newProber(t, srv, func(o *Options) { o.Observer = seen })
+
+	p.Probe(t.Context(), src)
+
+	want := []string{"connect/started", "connect/finished", "done"}
+
+	got := seen.steps()
+	if len(got) != len(want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("events = %v, want %v", got, want)
+		}
+	}
+}
+
+// The activity is what the page reads while a run is going, so its snapshot
+// has to describe the run accurately at every point.
+func TestActivityTracksARunFromStartToFinish(t *testing.T) {
+	activity := &Activity{}
+	src := mirror.Source{ID: "a", Name: "Mirror A"}
+
+	if got := activity.Snapshot(); got.Active {
+		t.Error("an activity with no run reported one")
+	}
+
+	id := activity.Begin(2)
+
+	activity.Observe(Event{Source: src, Layer: LayerConnect, Phase: PhaseStarted})
+
+	snap := activity.Snapshot()
+	if !snap.Active || snap.Total != 2 || snap.Done != 0 {
+		t.Fatalf("snapshot = %+v, want a run of 2 with nothing finished", snap)
+	}
+	if len(snap.Steps) != 1 {
+		t.Fatalf("steps = %d, want 1", len(snap.Steps))
+	}
+	if snap.Steps[0].Name != "Mirror A" || snap.Steps[0].Layer != LayerConnect {
+		t.Errorf("step = %+v, want Mirror A on the connectivity layer", snap.Steps[0])
+	}
+
+	activity.Observe(Event{Source: src, Layer: LayerConnect, Phase: PhaseFinished,
+		Result: Layer{Status: StatusOK, Duration: 42 * time.Millisecond}})
+	activity.Observe(Event{Source: src, Layer: LayerToken, Phase: PhaseStarted})
+
+	snap = activity.Snapshot()
+	step := snap.Steps[0]
+	if step.Layer != LayerToken {
+		t.Errorf("layer = %q, want the token layer", step.Layer)
+	}
+	if len(step.Trace) != 1 || step.Trace[0].Layer != LayerConnect ||
+		step.Trace[0].Duration != 42*time.Millisecond {
+		t.Errorf("trace = %+v, want the finished connectivity layer", step.Trace)
+	}
+
+	activity.Observe(Event{Source: src, Phase: PhaseDone})
+
+	snap = activity.Snapshot()
+	if snap.Done != 1 || !snap.Steps[0].Done {
+		t.Fatalf("snapshot = %+v, want one finished mirror", snap)
+	}
+	if snap.Steps[0].Layer != "" {
+		t.Errorf("a finished mirror still reports a running layer: %q", snap.Steps[0].Layer)
+	}
+	// The step stays in the list, so a reader sees what just finished rather
+	// than watching rows disappear.
+	if len(snap.Steps) != 1 {
+		t.Errorf("steps = %d, want the finished one kept", len(snap.Steps))
+	}
+
+	activity.End(id)
+
+	if got := activity.Snapshot(); got.Active {
+		t.Error("an ended run is still reported as active")
+	}
+}
+
+// The background sweep measures mirrors too, and it is wired to the same
+// activity. A page should not fill up with progress for work nobody asked for
+// from it.
+func TestActivityIgnoresEventsOutsideARun(t *testing.T) {
+	activity := &Activity{}
+
+	activity.Observe(Event{Source: mirror.Source{ID: "bg"}, Layer: LayerConnect, Phase: PhaseStarted})
+
+	if got := activity.Snapshot(); got.Active {
+		t.Error("an event with no run registered started one")
+	}
+}
+
+// Two batches can overlap, and the older one finishing must not wipe the view
+// of the newer one.
+func TestActivityEndIsScopedToItsOwnRun(t *testing.T) {
+	activity := &Activity{}
+
+	first := activity.Begin(1)
+	second := activity.Begin(1)
+
+	activity.End(first)
+	if !activity.Snapshot().Active {
+		t.Error("ending the superseded run retired the current one")
+	}
+
+	activity.End(second)
+	if activity.Snapshot().Active {
+		t.Error("the current run survived its own end")
+	}
+}
+
+// A run whose owner is gone — a handler that panicked, a process signalled
+// mid-batch — must not keep a page describing work that is not happening.
+func TestActivityStopsReportingARunWhoseOwnerIsGone(t *testing.T) {
+	activity := &Activity{}
+	activity.Begin(1)
+
+	activity.mu.Lock()
+	activity.run.started = time.Now().Add(-staleAfter - time.Minute)
+	activity.mu.Unlock()
+
+	if got := activity.Snapshot(); got.Active {
+		t.Error("a run past its ceiling was still reported as active")
+	}
+}
+
+// A nil activity is the wiring where nobody is watching. It has to be usable:
+// a nil pointer stored in an interface is not nil, so the alternative is a
+// panic in the one configuration that measures without a page open.
+func TestNilActivityIsUsable(t *testing.T) {
+	var activity *Activity
+
+	if got := activity.Snapshot(); got.Active {
+		t.Error("a nil activity reported a run")
+	}
+	if id := activity.Begin(1); id != 0 {
+		t.Errorf("Begin = %d on a nil activity", id)
+	}
+	activity.End(0)
+	activity.Observe(Event{Source: mirror.Source{ID: "x"}, Layer: LayerConnect, Phase: PhaseStarted})
 }
 
 func TestRetryAfter(t *testing.T) {

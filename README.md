@@ -54,11 +54,14 @@ Each mirror is measured in four steps, and the speed test page reports them sepa
 3. **Manifest** — time to the first byte, and a digest computed from what actually arrived.
 4. **Throughput** — pulling a real blob, capped at 8 MiB. This is the number that matters, because a mirror can answer instantly and still be useless.
 
+The first three layers share one budget and the fourth gets its own (`probe.timeout` and `probe.blob_timeout`). That split is not a detail: the first three are round trips, the fourth is a download, and a single deadline covering both means the clock — not the mirror — decides whether the transfer succeeded. Under one 15 s budget a mirror delivering 500 kB/s would be recorded as having dropped the connection at the point the clock ran out, which is a verdict about the mirror that nobody measured. Under the split, a mirror that is merely slow is reported slowly, with the rate it actually reached, and the detail says how far it got.
+
 Four rules shape the verdicts, and they are the reason to trust this over a ping:
 
 - **Rate limiting is not failure.** A 429 means the mirror is up and will not talk to us right now. It gets its own amber result, because folding it into "down" would make healthy mirrors look broken.
 - **A digest is never taken on trust.** The blob digest is computed locally from the bytes received, never read from a response header. And a read capped by the 8 MiB limit is reported as *unverifiable* rather than as a mismatch — accusing a mirror of serving bad content when the shortage was ours is exactly the wrong answer.
 - **A dash is not a zero.** A layer that produced no number shows a dash. Zero would claim the step finished faster than the clock could resolve, which is a different statement from "it never ran".
+- **A run in progress says what it is doing.** The speed test takes tens of seconds per mirror, so the page shows each mirror's current layer and how long that layer has been running, refreshed from the server as it happens rather than inferred from a client-side stopwatch. A spinner that has been turning for forty seconds with no explanation is indistinguishable from one that has hung.
 - **Anonymous means anonymous, and redirects are followed the way a real pull follows them.** The probe never fills in a username or password: if a registry refuses an anonymous token, that is reported honestly. A `401` that advertises a token realm is not a refusal — it is how every anonymous pull begins, so it counts as a working connection, while a `401` or `403` with no realm at all is the real thing. Because a cross-host redirect drops the `Authorization` header, a mirror that answers with a `302` gets re-authorised once against the final URL — otherwise an alias such as `hub.rat.dev` would be written off as needing credentials while `docker pull` succeeds against it.
 
 Every run records the digest the manifest resolved to, so two mirrors measured in the same batch can be compared honestly — a tag can be answered from a cache, and the same tag on two mirrors is not necessarily the same bytes.
@@ -129,7 +132,8 @@ base_url: ""
 
 probe:
   concurrency: 5         # mirrors measured at once, 1..16
-  timeout: 15s           # per-request budget
+  timeout: 15s           # budget for the answering layers (connect, token, manifest)
+  blob_timeout: 45s      # budget for the transfer on its own
   interval: 30m          # background sweep: minimum 1m, 0s turns it off
 ```
 

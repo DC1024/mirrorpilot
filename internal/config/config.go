@@ -42,6 +42,13 @@ const (
 	// sweep is off, which is never "too frequent".
 	MinimumInterval = time.Minute
 	maximumTimeout  = 5 * time.Minute
+
+	// defaultBlobTimeout matches the engine's own default, and a test holds the
+	// two together. Written out rather than imported because this package
+	// depends on nothing but the standard library and the YAML parser: it is
+	// the one place a reader can see every knob at once, and that is worth more
+	// than saving a literal.
+	defaultBlobTimeout = 45 * time.Second
 )
 
 // Duration is a time.Duration that unmarshals from a Go duration string such as
@@ -80,7 +87,26 @@ type ProbeConfig struct {
 
 	// Timeout is the per-request budget. Probing a mirror that is merely slow
 	// should not hang the whole run.
+	//
+	// This covers the three layers that are round trips — connectivity, the
+	// token exchange, and reading the manifest. It deliberately does not cover
+	// the transfer: see BlobTimeout.
 	Timeout Duration `yaml:"timeout"`
+
+	// BlobTimeout is the budget for layer 4 alone, where a probe stops being a
+	// round trip and becomes a transfer.
+	//
+	// Separate from Timeout because they are different questions. Fifteen
+	// seconds is generous for a request and far too little for a download, and
+	// one deadline covering both means the clock — not the mirror — decides
+	// whether the transfer succeeded. That is how a slow mirror gets recorded
+	// as a broken one.
+	//
+	// It is a limit on patience, not a target: a healthy mirror finishes in a
+	// couple of seconds and reports the rate it reached. Raise it on a link
+	// where the mirrors really are slower than this; the cost of raising it is
+	// paid only by mirrors that are already failing.
+	BlobTimeout Duration `yaml:"blob_timeout"`
 
 	// Interval is the spacing between automatic probe runs. Users trigger most
 	// probes by hand; this only bounds a background sweep.
@@ -117,6 +143,7 @@ func Default() Config {
 		Probe: ProbeConfig{
 			Concurrency: 5,
 			Timeout:     Duration(15 * time.Second),
+			BlobTimeout: Duration(defaultBlobTimeout),
 			Interval:    Duration(30 * time.Minute),
 		},
 	}
@@ -187,6 +214,11 @@ func (c Config) Validate() error {
 	timeout := c.Probe.Timeout.Std()
 	if timeout <= 0 || timeout > maximumTimeout {
 		return fmt.Errorf("probe timeout %s is outside 0..%s", timeout, maximumTimeout)
+	}
+
+	blobTimeout := c.Probe.BlobTimeout.Std()
+	if blobTimeout <= 0 || blobTimeout > maximumTimeout {
+		return fmt.Errorf("probe blob_timeout %s is outside 0..%s", blobTimeout, maximumTimeout)
 	}
 
 	// A negative interval is a mistake, not a way to ask for less than nothing.

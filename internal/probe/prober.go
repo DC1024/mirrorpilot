@@ -27,6 +27,16 @@ const (
 	DefaultConnectTimeout = 5 * time.Second
 	DefaultTimeout        = 15 * time.Second
 
+	// DefaultBlobTimeout is the budget for layer 4 alone.
+	//
+	// Three times the per-request budget, because a 3.8 MB blob on a mirror
+	// delivering 100 kB/s is thirty-eight seconds of legitimate transfer, and
+	// a mirror that cannot produce it inside this window cannot produce a
+	// layer a pull would wait for either. It is a limit on patience, not a
+	// target: a healthy mirror finishes in a few seconds and reports the rate
+	// it actually achieved.
+	DefaultBlobTimeout = 45 * time.Second
+
 	// DefaultMaxBlobBytes caps layer 4. Enough to get past TCP slow start and
 	// produce a number that means something, small enough that probing a dozen
 	// mirrors is not a bandwidth event.
@@ -57,13 +67,32 @@ type Options struct {
 	// ConnectTimeout bounds dialling and the TLS handshake.
 	ConnectTimeout time.Duration
 
-	// Timeout bounds one whole probe of one mirror.
+	// Timeout bounds the answering half of a probe: connectivity, the token
+	// and the manifest. Each is a round trip, and a mirror that cannot
+	// complete one in this long is not one anybody should be configuring.
 	Timeout time.Duration
+
+	// BlobTimeout bounds layer 4, which is a transfer rather than a round
+	// trip.
+	//
+	// Separate from Timeout on purpose. A transfer takes as long as the data
+	// takes, and one shared deadline means a slow mirror is reported as a
+	// broken one: the read is cut by the clock and the page says the transfer
+	// was interrupted, which is true of the measurement and false about the
+	// mirror. Measured against one mirror that stalls near the end of a
+	// 3.8 MB blob, the difference between this and Timeout is the difference
+	// between "slow" and "failed".
+	BlobTimeout time.Duration
 
 	// MaxBlobBytes caps how much of the layer-4 blob is downloaded. A cap means
 	// the blob's digest cannot be checked, which the Result reports honestly
 	// rather than treating as a mismatch.
 	MaxBlobBytes int64
+
+	// Observer watches probes go by, for a page that wants to show progress
+	// rather than a spinner. Nil means nobody is watching, which is the case
+	// for the background sweep.
+	Observer Observer
 
 	// UserAgent identifies this panel to the mirrors it measures. Being
 	// identifiable is a courtesy to whoever pays for the bandwidth.
@@ -90,6 +119,9 @@ func New(opts Options) (*Prober, error) {
 	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = DefaultTimeout
+	}
+	if opts.BlobTimeout <= 0 {
+		opts.BlobTimeout = DefaultBlobTimeout
 	}
 	if opts.MaxBlobBytes <= 0 {
 		opts.MaxBlobBytes = DefaultMaxBlobBytes
@@ -146,6 +178,11 @@ func (p *Prober) Target() Target { return p.opts.Target }
 func (p *Prober) Probe(ctx context.Context, src mirror.Source) Result {
 	res := Result{SourceID: src.ID, StartedAt: time.Now().UTC()}
 
+	// Reported however this returns, including the short circuits below: a
+	// watcher that is never told a probe ended keeps the mirror on screen as
+	// in-flight for as long as the page stays open.
+	defer func() { p.report(src, Event{Phase: PhaseDone}) }()
+
 	base := strings.TrimRight(src.URL, "/")
 	if base == "" {
 		res.Connect = Layer{Status: StatusFailed, Detail: "mirror has no URL"}
@@ -153,11 +190,34 @@ func (p *Prober) Probe(ctx context.Context, src mirror.Source) Result {
 		return res
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, p.opts.Timeout)
-	defer cancel()
+	// Two budgets, not one. The first three layers are round trips; the
+	// fourth is a transfer. Sharing a single deadline means the clock, not the
+	// mirror, decides whether the throughput layer succeeded — and the page
+	// then reports a slow mirror as one that dropped the connection.
+	probeCtx, cancelProbe := context.WithTimeout(ctx, p.opts.Timeout)
+	defer cancelProbe()
 
-	connect, challenge := p.checkConnectivity(ctx, base)
+	blobCtx, cancelBlob := context.WithTimeout(ctx, p.opts.BlobTimeout)
+	defer cancelBlob()
+
+	// Tokens are minted for the challenge that asked for them, and a
+	// challenge can arrive during any layer — including one raised after the
+	// answering budget has expired. Binding each closure to the context it
+	// will be used under keeps a mid-flight re-challenge from being answered
+	// with a token request that is already dead, which would read as the
+	// mirror refusing us credentials.
+	reauth := func(c context.Context) reauthFunc {
+		return func(ch authChallenge) (string, bool) {
+			tok, layer := p.fetchToken(c, src, ch)
+			return tok, layer.Status == StatusOK
+		}
+	}
+
+	p.report(src, Event{Layer: LayerConnect, Phase: PhaseStarted})
+	connect, challenge := p.checkConnectivity(probeCtx, base)
 	res.Connect = connect
+	p.report(src, Event{Layer: LayerConnect, Phase: PhaseFinished, Result: connect})
+
 	if !connect.Status.Alive() {
 		return verdict(res)
 	}
@@ -168,35 +228,43 @@ func (p *Prober) Probe(ctx context.Context, src mirror.Source) Result {
 		return verdict(res)
 	}
 
-	token, tokenLayer := p.fetchToken(ctx, src, challenge)
+	p.report(src, Event{Layer: LayerToken, Phase: PhaseStarted})
+	token, tokenLayer := p.fetchToken(probeCtx, src, challenge)
 	res.Token = tokenLayer
+	p.report(src, Event{Layer: LayerToken, Phase: PhaseFinished, Result: tokenLayer})
+
 	if tokenLayer.Status == StatusRateLimited {
 		return verdict(res)
 	}
 
-	// A mirror that answers a challenge mid-flight (typically because it
-	// redirected us somewhere and the redirect stripped our credentials)
-	// deserves the same treatment a real client gives it: read the new
-	// challenge, fetch a token for it, and try once more.
-	reauth := func(ch authChallenge) (string, bool) {
-		tok, layer := p.fetchToken(ctx, src, ch)
-		return tok, layer.Status == StatusOK
-	}
-
-	body, digest, manifestLayer := p.fetchManifest(ctx, base, token, p.opts.Target.Reference, reauth)
+	p.report(src, Event{Layer: LayerManifest, Phase: PhaseStarted})
+	body, digest, manifestLayer := p.fetchManifest(probeCtx, base, token, p.opts.Target.Reference, reauth(probeCtx))
 	res.Manifest = manifestLayer
 	res.ResolvedDigest = digest
+	p.report(src, Event{Layer: LayerManifest, Phase: PhaseFinished, Result: manifestLayer})
+
 	if manifestLayer.Status != StatusOK {
 		return verdict(res)
 	}
 
-	throughput, read, checked, verified := p.fetchBlob(ctx, base, token, parseManifest(body), reauth)
+	p.report(src, Event{Layer: LayerThroughput, Phase: PhaseStarted})
+	throughput, read, checked, verified := p.fetchBlob(blobCtx, base, token, parseManifest(body), reauth(blobCtx))
 	res.Throughput = throughput
 	res.Bytes = read
 	res.BlobDigestChecked = checked
 	res.BlobDigestOK = verified
+	p.report(src, Event{Layer: LayerThroughput, Phase: PhaseFinished, Result: throughput})
 
 	return verdict(res)
+}
+
+// report tells the observer about a probe, if anybody is watching.
+func (p *Prober) report(src mirror.Source, event Event) {
+	if p.opts.Observer == nil {
+		return
+	}
+	event.Source = src
+	p.opts.Observer.Observe(event)
 }
 
 // verdict derives the overall status, in the order the questions actually
@@ -586,7 +654,7 @@ func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifest
 
 	layer := Layer{Status: StatusOK, Duration: elapsed}
 	if err != nil {
-		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: interruptedDetail(read)}
+		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: interruptedDetail(read, err)}
 	}
 
 	complete := read >= blob.Size
@@ -641,7 +709,7 @@ func (p *Prober) fetchBlobAt(ctx context.Context, u *url.URL, token string, blob
 
 	layer := Layer{Status: StatusOK, Duration: elapsed}
 	if err != nil {
-		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: interruptedDetail(read)}
+		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: interruptedDetail(read, err)}
 	}
 
 	complete := read >= blob.Size
@@ -815,11 +883,25 @@ func HumanBytes(n int64) string {
 // means the mirror answered the request and then sent nothing — a different
 // fault from one that streams for a while and gives up, and the two should
 // not share a sentence that turns the second into a rounded-down zero.
-func interruptedDetail(read int64) string {
-	if read <= 0 {
-		return "blob transfer was interrupted before any data arrived"
+// interruptedDetail explains a blob read that stopped short.
+//
+// The reason is carried, not just the byte count. "Interrupted after 102.6
+// KiB" is the same sentence whether our own deadline cut the read or the
+// mirror closed the connection, and those two demand opposite responses:
+// one means the mirror is fine and the clock was wrong, the other means the
+// mirror is not. Leaving the reason out is how a slow mirror gets written off
+// as a broken one — a conclusion that then travels into the notes shipped
+// with the next release.
+func interruptedDetail(read int64, err error) string {
+	where := "before any data arrived"
+	if read > 0 {
+		where = "after " + HumanBytes(read)
 	}
-	return fmt.Sprintf("blob transfer was interrupted after %s", HumanBytes(read))
+
+	if reason(err) == "timed out" {
+		return fmt.Sprintf("blob transfer timed out %s", where)
+	}
+	return fmt.Sprintf("blob transfer stopped %s (%s)", where, reason(err))
 }
 
 // descriptor is one entry in an index, or one blob in a manifest.

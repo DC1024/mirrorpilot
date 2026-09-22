@@ -505,6 +505,107 @@ func TestProbePageRedirectsRunsWhileLoggedOut(t *testing.T) {
 	}
 }
 
+// withActivity wires a live view the test can drive by hand.
+func withActivity(activity *probe.Activity) func(*Options) {
+	return func(o *Options) { o.Activity = activity }
+}
+
+// The page has to carry the endpoint and the layer labels the script needs.
+//
+// A page that polls nothing, or names a layer with its internal identifier, is
+// a feature that exists in the code and not in the browser — and nothing else
+// in this package would notice.
+func TestProbePageCarriesTheLiveProgressWiring(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+
+	body := h.body(h.get("/probe"))
+
+	for _, want := range []string{
+		`data-progress="/probe/progress"`,
+		// The layer labels come from the catalogue rather than from the script,
+		// so a language the panel speaks is a language the progress view
+		// speaks. These are English, because the harness renders in English.
+		`data-step-connect="connectivity"`,
+		`data-step-token="the token endpoint"`,
+		`data-step-manifest="the manifest"`,
+		`data-step-throughput="throughput"`,
+		`data-step-format="testing %s — %d seconds in"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page is missing %q", want)
+		}
+	}
+}
+
+// The endpoint reports what a run is doing, worded for the reader.
+func TestProbeProgressEndpointDescribesARun(t *testing.T) {
+	activity := &probe.Activity{}
+	h := newHarness(t, withActivity(activity))
+	h.setup()
+
+	// Nothing running. The script has to be able to tell "idle" apart from a
+	// layer that is taking a long time, or it cannot decide whether to keep
+	// showing progress at all.
+	body := h.body(h.get("/probe/progress"))
+	if !strings.Contains(body, `"active":false`) {
+		t.Errorf("an idle panel reported %s", body)
+	}
+
+	run := activity.Begin(2)
+	t.Cleanup(func() { activity.End(run) })
+
+	src := mirror.Source{ID: "1ms", Name: "1ms.run"}
+	activity.Observe(probe.Event{Source: src, Layer: probe.LayerConnect, Phase: probe.PhaseFinished,
+		Result: probe.Layer{Status: probe.StatusOK, Duration: 209 * time.Millisecond}})
+	activity.Observe(probe.Event{Source: src, Layer: probe.LayerThroughput, Phase: probe.PhaseStarted})
+
+	body = h.body(h.get("/probe/progress"))
+
+	for _, want := range []string{
+		`"active":true`,
+		`"total":2`,
+		`"done":0`,
+		`"name":"1ms.run"`,
+		// The layer in flight, by name: the script maps it to a label.
+		`"layer":"throughput"`,
+		// And the layer that finished, already worded and coloured.
+		`"label":"Connect"`,
+		`"value":"209 ms"`,
+		`"class":"pill-ok"`,
+		`"done":false`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the progress response does not contain %q:\n%s", want, body)
+		}
+	}
+}
+
+// A layer's number is only printed when there is one. A failed layer's verdict
+// is the more useful of the two: "0 ms" would claim a measurement nobody made.
+func TestTraceValuePrefersANumberAndFallsBackToTheVerdict(t *testing.T) {
+	tr := testTranslator(t)
+
+	fast := traceValue(probe.Trace{Layer: probe.LayerConnect, Status: probe.StatusOK,
+		Duration: 209 * time.Millisecond}, tr)
+	if fast != "209 ms" {
+		t.Errorf("a fast layer = %q", fast)
+	}
+
+	// The transfer layer is the one that can take a minute, and "45000 ms" is
+	// hard to read at exactly the moment somebody is watching it climb.
+	slow := traceValue(probe.Trace{Layer: probe.LayerThroughput, Status: probe.StatusOK,
+		Duration: 4500 * time.Millisecond}, tr)
+	if slow != "4.5 s" {
+		t.Errorf("a slow layer = %q", slow)
+	}
+
+	failed := traceValue(probe.Trace{Layer: probe.LayerThroughput, Status: probe.StatusFailed}, tr)
+	if failed != "failed" {
+		t.Errorf("a failed layer = %q, want its verdict", failed)
+	}
+}
+
 func TestHumanRate(t *testing.T) {
 	cases := map[int64]string{
 		// Nothing measured is not "0 B/s": the two mean different things and

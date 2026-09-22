@@ -389,10 +389,19 @@ func (s *Server) probeTarget(ctx context.Context) (probe.Target, error) {
 
 // handleProbeRun measures mirrors and returns the visitor to the results.
 //
-// Synchronous, and that is a deliberate limit of this version: a batch takes
-// seconds, not minutes, and doing it in the background would need a queue, a
-// progress channel and a way to describe a run that is still going. When that
-// becomes worth building, this is the function that changes.
+// Synchronous, and that is still the shape of this version. What changed is
+// that the run now publishes what it is doing: the page polls
+// handleProbeProgress while this handler is still holding the connection, so a
+// batch that takes a minute is legible instead of being a blank page with a
+// spinning tab. Making the run itself asynchronous would need a queue and a
+// way to describe a finished run that nobody is waiting for, which is a
+// different feature — and one that would cost the property below, that work
+// already paid for in bandwidth is never discarded.
+//
+// The run is detached from the request on purpose (see runCtx): a browser
+// cancels in-flight requests when the user navigates away, and throwing away a
+// batch of measurements because someone clicked a link would be a strange way
+// to treat work already done.
 func (s *Server) handleProbeRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -435,6 +444,11 @@ func (s *Server) handleProbeRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Registered before the run so the page's first poll already has something
+	// to show, and retired when it ends however it ends.
+	run := s.activity.Begin(len(sources))
+	defer s.activity.End(run)
+
 	s.recordProblems(ctx, runner.RunAll(runCtx, sources))
 
 	redirect(w, r, "/probe?flash=probe.ran")
@@ -453,6 +467,12 @@ func (s *Server) runOneMirror(ctx context.Context, w http.ResponseWriter, r *htt
 		s.redirectSourceError(w, r, err)
 		return
 	}
+
+	// A single run is a run of one, and the page shows it the same way: there
+	// is no reason for the same four layers to be invisible just because only
+	// one mirror was asked for.
+	run := s.activity.Begin(1)
+	defer s.activity.End(run)
 
 	if _, err := runner.RunOne(ctx, catalog.ToProbeSource(rec)); err != nil {
 		s.log.ErrorContext(ctx, "web: probe result was not recorded", "mirror", id, "err", err)

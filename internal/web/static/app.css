@@ -753,7 +753,7 @@ a:focus-visible {
   display: grid;
   justify-items: center;
   gap: 0.65rem;
-  max-width: 22rem;
+  max-width: 26rem;
   text-align: center;
   padding: 1.6rem 1.8rem;
   background: var(--surface);
@@ -778,6 +778,91 @@ a:focus-visible {
   font-weight: 600;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
+}
+
+/*
+  What the run is doing right now.
+
+  A server-rendered page cannot be pushed to, so the script asks, and this is
+  what the answer looks like: one row per mirror, the layer in flight with a
+  clock of its own, and a chip for every layer that has already finished. A
+  mirror taking forty-five seconds over a blob is otherwise indistinguishable
+  from a panel that has hung.
+*/
+
+.probe-busy-progress {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hidden rather than empty: a frame around nothing reads as a panel that
+   failed to load. Without JavaScript both stay hidden and the count-up above
+   is what the visitor gets. */
+.probe-busy-progress[hidden],
+.probe-busy-steps[hidden] {
+  display: none;
+}
+
+.probe-busy-steps {
+  width: 100%;
+  max-height: 38vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  text-align: left;
+}
+
+.probe-step {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.probe-step:first-child {
+  border-top: 0;
+}
+
+.probe-step-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* A mirror whose probe is over keeps its row, so the numbers it just produced
+   stay readable instead of vanishing as it finishes. */
+.probe-step.is-done .probe-step-name::after {
+  content: " ✓";
+  color: var(--ok-text);
+  font-weight: 500;
+}
+
+.probe-step-what {
+  font-size: 0.82rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.probe-step.is-done .probe-step-what {
+  color: var(--text-muted);
+}
+
+.probe-step-trace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+/* Carries .pill and one of the pill colours for the verdict; this only makes
+   it small enough that four of them fit on one line. */
+.probe-chip {
+  padding: 0.05rem 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .spinner {

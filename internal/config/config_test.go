@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DC1024/mirrorpilot/internal/probe"
 )
 
 // isolateEnv clears the MIRRORPILOT_* variables so a developer's own shell
@@ -114,6 +116,31 @@ func TestLoadPreservesDefaultsForAbsentKeys(t *testing.T) {
 	}
 }
 
+func TestBlobTimeoutIsLoadedFromTheFile(t *testing.T) {
+	isolateEnv(t)
+
+	cfg, err := Load(writeConfig(t, "probe:\n  blob_timeout: 90s\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.Probe.BlobTimeout.Std(); got != 90*time.Second {
+		t.Errorf("BlobTimeout = %s, want 90s", got)
+	}
+}
+
+// The two budgets are one decision made in two packages: this one owns the
+// knobs and the probe engine owns the fallback. A test rather than an import,
+// because this package deliberately depends on nothing but the standard
+// library, and a silent divergence would mean the shipped default and the
+// documented default are different numbers.
+func TestBlobTimeoutDefaultMatchesTheEngine(t *testing.T) {
+	if got := Default().Probe.BlobTimeout.Std(); got != probe.DefaultBlobTimeout {
+		t.Errorf("default blob_timeout = %s, but the engine falls back to %s",
+			got, probe.DefaultBlobTimeout)
+	}
+}
+
 func TestEnvOverridesFile(t *testing.T) {
 	isolateEnv(t)
 
@@ -170,6 +197,8 @@ func TestValidateRejects(t *testing.T) {
 		"concurrency huge":    func(c *Config) { c.Probe.Concurrency = 9999 },
 		"timeout zero":        func(c *Config) { c.Probe.Timeout = 0 },
 		"timeout too long":    func(c *Config) { c.Probe.Timeout = Duration(10 * time.Minute) },
+		"blob timeout zero":   func(c *Config) { c.Probe.BlobTimeout = 0 },
+		"blob timeout huge":   func(c *Config) { c.Probe.BlobTimeout = Duration(10 * time.Minute) },
 		"interval too short": func(c *Config) {
 			c.Probe.Interval = Duration(time.Second)
 		},

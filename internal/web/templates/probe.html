@@ -142,13 +142,32 @@
   <p class="note">{{ .T "disclaimer.no_warranty" }}</p>
 </section>
 
-<div class="probe-busy" id="probe-busy" hidden>
+<div class="probe-busy" id="probe-busy" hidden
+     data-progress="/probe/progress"
+     data-step-format="{{ .T "probe.busy_step" }}"
+     data-step-connect="{{ .T "probe.step.connect" }}"
+     data-step-token="{{ .T "probe.step.token" }}"
+     data-step-manifest="{{ .T "probe.step.manifest" }}"
+     data-step-throughput="{{ .T "probe.step.throughput" }}"
+     data-progress-label="{{ .T "probe.busy_progress" }}">
   <div class="probe-busy-panel" role="alertdialog" aria-modal="true"
        aria-labelledby="probe-busy-title" aria-describedby="probe-busy-detail">
     <span class="spinner" aria-hidden="true"></span>
     <h2 id="probe-busy-title">{{ .T "probe.busy_title" }}</h2>
     <p class="probe-busy-label"><span class="pill pill-muted">{{ .T "probe.busy_label" }}</span></p>
     <p class="probe-busy-timer" id="probe-busy-timer" data-label="{{ .T "probe.busy_hint" }}">—</p>
+
+    {{/*
+      What is being measured, filled in by the script from /probe/progress.
+
+      Empty without JavaScript, and hidden rather than empty-with-a-border: a
+      frame around nothing reads as a panel that failed to load. The layer
+      labels ride along as data attributes because they are translations, and
+      the locale files are where translations live.
+    */}}
+    <p class="probe-busy-progress" id="probe-busy-progress" hidden></p>
+    <ul class="probe-busy-steps" id="probe-busy-steps" hidden></ul>
+
     <p id="probe-busy-detail" class="note">{{ .T "probe.busy_detail" }}</p>
   </div>
 </div>

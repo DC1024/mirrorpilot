@@ -45,7 +45,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	panel, err := newPanel(config.Default(), db, auth.New(db, auth.Config{}), logger)
+	panel, err := newPanel(config.Default(), db, auth.New(db, auth.Config{}), logger, &probe.Activity{})
 	if err != nil {
 		t.Fatalf("newPanel: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestSecureCookiesFollowBaseURL(t *testing.T) {
 		cfg := config.Default()
 		cfg.BaseURL = baseURL
 
-		panel, err := newPanel(cfg, db, auth.New(db, auth.Config{}), logger)
+		panel, err := newPanel(cfg, db, auth.New(db, auth.Config{}), logger, &probe.Activity{})
 		if err != nil {
 			t.Fatalf("newPanel with base_url %q: %v", baseURL, err)
 		}
@@ -343,7 +343,7 @@ func TestNewRunnerFactoryValidatesTheTarget(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	factory := newRunnerFactory(db)
+	factory := newRunnerFactory(config.Default(), db, &probe.Activity{})
 
 	runner, err := factory(probe.DefaultTarget())
 	if err != nil {
@@ -491,7 +491,7 @@ func TestNewProbeSweepDoesNothingWithoutAnEnabledMirror(t *testing.T) {
 	// the sweep has to say so without reaching the network to find out. A test
 	// that answered this by probing Docker Hub would be a test that needs the
 	// internet, and this one is really about the guard in front of the work.
-	sweep := newProbeSweep(db, newRunnerFactory(db), discardLogger())
+	sweep := newProbeSweep(config.Default(), db, newRunnerFactory(config.Default(), db, &probe.Activity{}), discardLogger())
 
 	got, err := sweep(ctx)
 	if err != nil {
@@ -499,6 +499,25 @@ func TestNewProbeSweepDoesNothingWithoutAnEnabledMirror(t *testing.T) {
 	}
 	if got != 0 {
 		t.Errorf("sweep measured %d mirrors in a database with none", got)
+	}
+}
+
+// A batch deadline that does not cover the batch is a deadline that fails
+// mirrors for being measured last: the transfer still in flight when it expires
+// is recorded as one that dropped, which is the same false verdict the engine
+// used to produce one level down.
+func TestSweepBudgetCoversEveryWave(t *testing.T) {
+	cfg := config.Default()
+	perMirror := cfg.Probe.Timeout.Std() + cfg.Probe.BlobTimeout.Std()
+
+	if got := sweepBudget(cfg, 1); got < perMirror {
+		t.Errorf("one mirror gets %s, less than the %s it is allowed to spend", got, perMirror)
+	}
+
+	oneWave := sweepBudget(cfg, 1)
+	fourWaves := sweepBudget(cfg, cfg.Probe.Concurrency*4)
+	if fourWaves <= oneWave {
+		t.Errorf("four waves get %s, no more than the %s one wave gets", fourWaves, oneWave)
 	}
 }
 

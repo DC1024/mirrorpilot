@@ -153,7 +153,13 @@ func run(ctx context.Context) error {
 
 	manager := auth.New(db, auth.Config{})
 
-	panel, err := newPanel(cfg, db, manager, logger)
+	// One activity for the whole process, and the same value in both places:
+	// the engine publishes into it and the panel reads out of it. Wiring the
+	// two to different instances is the one mistake that would leave the page
+	// polling for progress nobody writes.
+	activity := &probe.Activity{}
+
+	panel, err := newPanel(cfg, db, manager, logger, activity)
 	if err != nil {
 		return err
 	}
@@ -171,8 +177,8 @@ func run(ctx context.Context) error {
 	// of the process, and detached from any request: this is the one piece of
 	// work the panel does with nobody watching, which is exactly why it does not
 	// depend on the master key being unlocked. Measuring needs no credentials.
-	factory := newRunnerFactory(db)
-	go sweepProbes(ctx, cfg.Probe.Interval.Std(), newProbeSweep(db, factory, logger), logger)
+	factory := newRunnerFactory(cfg, db, activity)
+	go sweepProbes(ctx, cfg.Probe.Interval.Std(), newProbeSweep(cfg, db, factory, logger), logger)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -206,19 +212,22 @@ func run(ctx context.Context) error {
 // Separate from run so tests exercise the real wiring rather than a hand-built
 // approximation of it, which is the kind of test that passes while the binary
 // is broken.
-func newPanel(cfg config.Config, db *store.Store, manager *auth.Manager, logger *slog.Logger) (*web.Server, error) {
+func newPanel(cfg config.Config, db *store.Store, manager *auth.Manager, logger *slog.Logger,
+	activity *probe.Activity) (*web.Server, error) {
+
 	bundle, err := i18n.New()
 	if err != nil {
 		return nil, err
 	}
 
 	return web.New(web.Options{
-		Store:   db,
-		Auth:    manager,
-		I18n:    bundle,
-		Probe:   runnerProbes(newRunnerFactory(db)),
-		Version: Version,
-		Logger:  logger,
+		Store:    db,
+		Auth:     manager,
+		I18n:     bundle,
+		Probe:    runnerProbes(newRunnerFactory(cfg, db, activity)),
+		Activity: activity,
+		Version:  Version,
+		Logger:   logger,
 
 		// The panel has no way to know it is behind a TLS terminator, so the
 		// externally visible address is the only honest signal we have. Set
@@ -244,13 +253,29 @@ type runnerFactory func(target probe.Target) (*probe.Runner, error)
 // the same way: both write into one history table, and a second engine
 // configured differently would leave that table holding two datasets that look
 // like one.
-func newRunnerFactory(db *store.Store) runnerFactory {
+//
+// The activity goes in as the observer. The sweep shares it, which costs
+// nothing and is worth having: the sweep never registers a run, so its
+// measurements are published into nothing and the panel's progress view stays a
+// description of the run the visitor actually asked for.
+func newRunnerFactory(cfg config.Config, db *store.Store, activity *probe.Activity) runnerFactory {
 	return func(target probe.Target) (*probe.Runner, error) {
-		engine, err := probe.New(probe.Options{Target: target})
+		engine, err := probe.New(probe.Options{
+			Target: target,
+
+			// Both budgets are handed over explicitly rather than left to the
+			// engine's defaults. A budget that is documented in config.yaml
+			// and then ignored is worse than one that does not exist: the user
+			// who raises it believes they have fixed something.
+			Timeout:     cfg.Probe.Timeout.Std(),
+			BlobTimeout: cfg.Probe.BlobTimeout.Std(),
+
+			Observer: activity,
+		})
 		if err != nil {
 			return nil, err
 		}
-		return probe.NewRunner(engine, db, probe.RunnerOptions{})
+		return probe.NewRunner(engine, db, probe.RunnerOptions{Concurrency: cfg.Probe.Concurrency})
 	}
 }
 
@@ -266,13 +291,25 @@ func runnerProbes(factory runnerFactory) web.ProbeFactory {
 	}
 }
 
-// probeSweepTimeout bounds one automatic batch.
+// sweepBudget is how long one automatic batch may take.
 //
-// Generous for the same reason the speed test page's budget is: a dozen mirrors
-// at fifteen seconds each with a handful in flight is minutes of work. Finite so
-// that a sweep which somehow never finishes cannot silently stop every one that
-// would follow it.
-const probeSweepTimeout = 5 * time.Minute
+// Derived from the batch rather than fixed. A fixed deadline cuts whatever is
+// still in flight when it expires, and a cut transfer is recorded as a mirror
+// that dropped it — the same mistake the probe itself used to make, one level
+// up, where it shows up as a mirror that only fails when it happens to be
+// measured last. So: as many waves of mirrors as there are, each given both of
+// its budgets, plus a little slack for everything that is not a network wait.
+func sweepBudget(cfg config.Config, mirrors int) time.Duration {
+	perMirror := cfg.Probe.Timeout.Std() + cfg.Probe.BlobTimeout.Std()
+
+	concurrency := cfg.Probe.Concurrency
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	waves := max((mirrors+concurrency-1)/concurrency, 1)
+
+	return time.Duration(waves)*perMirror + time.Minute
+}
 
 // sweepBatch is one automatic pass, reporting how many mirrors it covered.
 //
@@ -334,7 +371,7 @@ func sweepProbes(ctx context.Context, interval time.Duration, batch sweepBatch, 
 }
 
 // newProbeSweep is the sweep's actual work: measure everything that is enabled.
-func newProbeSweep(db *store.Store, factory runnerFactory, logger *slog.Logger) sweepBatch {
+func newProbeSweep(cfg config.Config, db *store.Store, factory runnerFactory, logger *slog.Logger) sweepBatch {
 	return func(ctx context.Context) (int, error) {
 		// Re-read and rebuild on every pass: the image being measured is a
 		// setting someone can change between two sweeps, and reusing one
@@ -361,7 +398,7 @@ func newProbeSweep(db *store.Store, factory runnerFactory, logger *slog.Logger) 
 			return 0, nil
 		}
 
-		runCtx, cancel := context.WithTimeout(ctx, probeSweepTimeout)
+		runCtx, cancel := context.WithTimeout(ctx, sweepBudget(cfg, len(sources)))
 		defer cancel()
 
 		summary := runner.RunAll(runCtx, sources)
