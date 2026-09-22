@@ -31,7 +31,7 @@
     "scope": ["dockerhub", "ghcr"],
     "provider": "company",
     "trust": "known",
-    "note": "Commercial acceleration service with a free public tier. Blob transfers are occasionally cut off mid-read, which the probe records as a failed throughput rather than smoothing over.",
+    "note": "Commercial acceleration service with a free public tier. Observed from two different networks (2026-09-22): layers answer quickly, but blob downloads are regularly cut off mid-read. The probe records that as a failed throughput rather than smoothing it over — a pull that cannot finish is a pull that fails.",
     "builtin": true,
     "enabled": true
   },

@@ -587,8 +587,11 @@ func (p *Prober) fetchBlob(ctx context.Context, base, token string, doc manifest
 	layer := Layer{Status: StatusOK, Duration: elapsed}
 	if err != nil {
 		// A partial transfer is still a throughput sample — and a useful one,
-		// since it usually means the connection dropped mid-flight.
-		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: "blob transfer was interrupted"}
+		// since it usually means the connection dropped mid-flight. Saying how
+		// much arrived before the drop is what tells a dropped connection
+		// apart from a blocked one.
+		layer = Layer{Status: StatusFailed, Duration: elapsed,
+			Detail: fmt.Sprintf("blob transfer was interrupted after %s", HumanBytes(read))}
 	}
 
 	complete := read >= blob.Size
@@ -643,7 +646,8 @@ func (p *Prober) fetchBlobAt(ctx context.Context, u *url.URL, token string, blob
 
 	layer := Layer{Status: StatusOK, Duration: elapsed}
 	if err != nil {
-		layer = Layer{Status: StatusFailed, Duration: elapsed, Detail: "blob transfer was interrupted"}
+		layer = Layer{Status: StatusFailed, Duration: elapsed,
+			Detail: fmt.Sprintf("blob transfer was interrupted after %s", HumanBytes(read))}
 	}
 
 	complete := read >= blob.Size
