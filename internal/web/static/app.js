@@ -44,6 +44,51 @@
     }
   });
 
+  // Speed-test forms.
+  //
+  // A batch runs for seconds to minutes on the server and the page is blank
+  // the whole time, so the browser's only cue is a spinning tab that says
+  // nothing. A submit handler raises a covering panel the moment the form is
+  // posted and a clock that answers "is it stuck?" with a number. It does not
+  // preventDefault: without JavaScript the form still posts and redirects
+  // exactly as before, and the panel is simply never raised. The count-up is
+  // the only moving part, and it reads elapsed whole seconds rather than a
+  // progress bar, because the total is not known ahead of time.
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form.matches("[data-probe-busy]")) {
+      return;
+    }
+    beginProbeWait(form);
+  });
+
+  function beginProbeWait(form) {
+    var panel = document.getElementById("probe-busy");
+    if (!panel) {
+      return;
+    }
+    var timer = document.getElementById("probe-busy-timer");
+
+    // One whole batch, one form. A double submit would otherwise restart the
+    // clock and raise the panel twice.
+    form.setAttribute("disabled", "");
+
+    var started = Date.now();
+    if (timer) {
+      var format = timer.getAttribute("data-label") || "";
+      var tick = function () {
+        var seconds = Math.floor((Date.now() - started) / 1000);
+        // %d is the one placeholder in the label; leave the rest of the
+        // sentence untouched.
+        timer.textContent = format.replace("%d", String(seconds));
+      };
+      tick();
+      window.setInterval(tick, 1000);
+    }
+
+    panel.hidden = false;
+  }
+
   // Copy buttons.
   //
   // The text is read out of the element the button names rather than out of a

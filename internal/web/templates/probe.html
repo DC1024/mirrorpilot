@@ -21,7 +21,7 @@
   {{ if .Unavailable }}
   <p class="alert alert-error" role="alert">{{ $.T "probe.error.unavailable" }}</p>
   {{ else }}
-  <form method="post" action="/probe">
+  <form method="post" action="/probe" data-probe-busy>
     {{ template "csrf" $ }}
     <button class="btn btn-primary" type="submit">{{ $.T "probe.run_all" }}</button>
   </form>
@@ -108,7 +108,7 @@
 
           <td class="row-actions">
             {{ if not $.ProbePage.Unavailable }}
-            <form method="post" action="/probe">
+            <form method="post" action="/probe" data-probe-busy>
               {{ template "csrf" $ }}
               <input type="hidden" name="id" value="{{ .SourceID }}">
               <button class="btn btn-small" type="submit">{{ $.T "probe.run_one" }}</button>
@@ -141,4 +141,15 @@
   <p>{{ .T "disclaimer.official_only" }}</p>
   <p class="note">{{ .T "disclaimer.no_warranty" }}</p>
 </section>
+
+<div class="probe-busy" id="probe-busy" hidden>
+  <div class="probe-busy-panel" role="alertdialog" aria-modal="true"
+       aria-labelledby="probe-busy-title" aria-describedby="probe-busy-detail">
+    <span class="spinner" aria-hidden="true"></span>
+    <h2 id="probe-busy-title">{{ .T "probe.busy_title" }}</h2>
+    <p class="probe-busy-label"><span class="pill pill-muted">{{ .T "probe.busy_label" }}</span></p>
+    <p class="probe-busy-timer" id="probe-busy-timer" data-label="{{ .T "probe.busy_hint" }}">—</p>
+    <p id="probe-busy-detail" class="note">{{ .T "probe.busy_detail" }}</p>
+  </div>
+</div>
 {{end}}

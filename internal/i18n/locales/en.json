@@ -118,6 +118,10 @@
   "password.warning": "The new password re-encrypts every stored credential. If you forget it, those credentials are gone for good.",
 
   "probe.batch_size": "Mirrors a batch covers",
+  "probe.busy_detail": "The page returns to the results on its own when the run finishes — there is nothing to refresh.",
+  "probe.busy_hint": "%d seconds in",
+  "probe.busy_label": "Measuring",
+  "probe.busy_title": "A speed test is running",
   "probe.col.actions": "Actions",
   "probe.col.connect": "Connect",
   "probe.col.digest": "Manifest digest",

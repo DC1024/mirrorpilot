@@ -118,6 +118,10 @@
   "password.warning": "新密码会对所有已保存的凭据重新加密。忘记新密码，这些凭据就找不回来了。",
 
   "probe.batch_size": "批量覆盖数量",
+  "probe.busy_detail": "完成后页面会自动回到测量结果，无需刷新或关闭。",
+  "probe.busy_hint": "已用时 %d 秒",
+  "probe.busy_label": "测量中",
+  "probe.busy_title": "测速正在进行",
   "probe.col.actions": "操作",
   "probe.col.connect": "连通",
   "probe.col.digest": "Manifest digest",

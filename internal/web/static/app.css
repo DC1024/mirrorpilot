@@ -726,6 +726,81 @@ a:focus-visible {
   margin-inline: auto;
 }
 
+/*
+  The speed-test wait. A batch runs on the server for seconds to minutes and
+  the only feedback a plain form POST can give is the browser's tab spinner,
+  which does not say what is happening or whether it is stuck. The panel is a
+  fixed covering layer raised from app.js the moment a [data-probe-busy] form
+  is posted; [hidden] is a style rule rather than an attribute selector so
+  the override holds. The count-up label is the only moving part besides the
+  spinner, and it carries the seconds, so the spinner may stay a simple ring.
+*/
+.probe-busy {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+
+.probe-busy[hidden] {
+  display: none;
+}
+
+.probe-busy-panel {
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+  max-width: 22rem;
+  text-align: center;
+  padding: 1.6rem 1.8rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.probe-busy-panel h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.probe-busy-label {
+  margin: 0;
+}
+
+.probe-busy-timer {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.spinner {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: probe-busy-spin 0.9s linear infinite;
+}
+
+@keyframes probe-busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
 /* Dashboard overview cards */
 /*
   The dashboard's facts used to sit in one dense dl: label and value in the
