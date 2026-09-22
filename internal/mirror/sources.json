@@ -31,7 +31,7 @@
     "scope": ["dockerhub", "ghcr"],
     "provider": "company",
     "trust": "known",
-    "note": "Commercial acceleration service with a free public tier. Observed from two different networks (2026-09-22): layers answer quickly, but blob downloads are regularly cut off mid-read. The probe records that as a failed throughput rather than smoothing it over — a pull that cannot finish is a pull that fails.",
+    "note": "Commercial acceleration service with a free public tier. Layers answer quickly, but transfers are far slower than the other mirrors here and swing by an order of magnitude: measured from one egress (2026-09-22), a full `docker pull` of alpine finished in 28s while the same 3.8 MB layer fetched directly took 269s. Usable, but not where a pull wants to land.",
     "builtin": true,
     "enabled": true
   },
@@ -43,7 +43,7 @@
     "scope": ["dockerhub"],
     "provider": "community",
     "trust": "unknown",
-    "note": "Little public information about the operator. It answers by redirecting to docker.1ms.run, so it behaves like that mirror and stands or falls with it. Listed because people use it, not because it is recommended.",
+    "note": "Little public information about the operator. It answers by redirecting to docker.1ms.run, so it behaves like that mirror and stands or falls with it — currently the slowest of them: a pull took 68s from one egress (2026-09-22), and a direct fetch of the same 3.8 MB layer stalled at 2.2 MB and never finished. Listed because people use it, not because it is recommended.",
     "builtin": true,
     "enabled": false
   }
