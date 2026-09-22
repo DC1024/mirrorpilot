@@ -38,6 +38,7 @@ MirrorPilot is being built in milestones. This is what actually works today:
 | Multi-arch image (`linux/amd64`, `linux/arm64`) | **Working** |
 | Mirror catalogue with trust grading, plus mirrors you add yourself | **Working** |
 | Four-layer speed probe with per-mirror history | **Working** |
+| Live per-layer progress while a speed test runs | **Working** |
 | Automatic background probing on an interval, so a ranking cannot go stale | **Working** |
 | `daemon.json` + containerd `hosts.toml` generation, merging into what you already have | **Working** |
 | GitHub Actions → Alibaba Cloud ACR relocation (workflow generation + dispatch) | **Working** |
@@ -56,7 +57,7 @@ Each mirror is measured in four steps, and the speed test page reports them sepa
 
 The first three layers share one budget and the fourth gets its own (`probe.timeout` and `probe.blob_timeout`). That split is not a detail: the first three are round trips, the fourth is a download, and a single deadline covering both means the clock — not the mirror — decides whether the transfer succeeded. Under one 15 s budget a mirror delivering 500 kB/s would be recorded as having dropped the connection at the point the clock ran out, which is a verdict about the mirror that nobody measured. Under the split, a mirror that is merely slow is reported slowly, with the rate it actually reached, and the detail says how far it got.
 
-Four rules shape the verdicts, and they are the reason to trust this over a ping:
+Five rules shape the verdicts, and they are the reason to trust this over a ping:
 
 - **Rate limiting is not failure.** A 429 means the mirror is up and will not talk to us right now. It gets its own amber result, because folding it into "down" would make healthy mirrors look broken.
 - **A digest is never taken on trust.** The blob digest is computed locally from the bytes received, never read from a response header. And a read capped by the 8 MiB limit is reported as *unverifiable* rather than as a mismatch — accusing a mirror of serving bad content when the shortage was ours is exactly the wrong answer.
@@ -74,7 +75,7 @@ Measurement answers "which mirror is fastest". It does not answer "how do I actu
 
 **Config (`/config`)** — for images on Docker Hub. It ranks the mirrors you have enabled and measured, then writes the `daemon.json` (or containerd `hosts.toml`) those rankings imply. Two details are worth knowing:
 
-- The order *is* the feature. Docker tries each mirror in turn and stops at the first that answers, so a fast mirror listed second is worth no more than a slow one first.
+- The order *is* the feature. Docker tries each mirror in turn and stops at the first that answers, so a fast mirror listed second is worth no more than a slow one first. Mirrors are ranked in three standings — those whose newest run worked, those nobody has tried, and those whose newest run did not — and that last group is called out, because "we tried this and it did not work" is a different statement from "we have not tried this", and only one of them is something you can act on.
 - Paste your existing `daemon.json` and it merges rather than replaces: `registry-mirrors` is overwritten, `insecure-registries` is merged, and anything it does not manage is carried through untouched. A document with comments or a trailing comma is **refused**, not silently corrected — Docker rejects those too, and pretending otherwise would hand you a config that fails later, somewhere less obvious.
 
 It also tells you what it *cannot* do: `registry-mirrors` only applies to Docker Hub, so enabled mirrors proxying other registries are counted and set aside rather than written in to occupy a slot that does nothing.

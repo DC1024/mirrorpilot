@@ -17,6 +17,7 @@ request — rather than in one locale file only.
 | upstream | 上游 | |
 | throttle / rate limit | 限流 | Keep "429" visible in any message that mentions it — the status code is the actionable part. |
 | probe / speed test | 测速 | |
+| unusable | 不可用 | A measured verdict: the newest run was tried and did not work. Never use it for a mirror nobody has measured — that one is 未测速 (never measured). The distinction is the point of having two words. |
 | egress | 出口 | As in "measurement egress" — 测速出口. |
 | trust level | 可信度 | |
 | relocate | 搬运 | Not 迁移, which is what you do to a database. |
