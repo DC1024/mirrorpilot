@@ -7,8 +7,18 @@ import (
 	"testing"
 )
 
+// mirror builds a mirror that was measured at bps bytes per second.
+//
+// A non-zero rate can only come out of a run that finished — that is what a
+// rate is — so the fixture carries the matching verdict. Constructing the two
+// independently would let a test describe a mirror that is somehow both fast
+// and broken, which the panel never produces and the code never has to handle.
 func mirror(name, url string, bps int64) Mirror {
-	return Mirror{Name: name, URL: url, BPS: bps}
+	m := Mirror{Name: name, URL: url, BPS: bps}
+	if bps > 0 {
+		m.Outcome = OutcomeWorks
+	}
+	return m
 }
 
 func TestHostAndEndpointIgnoreATrailingSlash(t *testing.T) {
@@ -72,6 +82,78 @@ func TestSelectPutsUnmeasuredMirrorsLastInCatalogueOrder(t *testing.T) {
 	}
 	if !equal(warnings[0].Names, []string{"never-a", "never-b"}) {
 		t.Errorf("unmeasured names = %v", warnings[0].Names)
+	}
+}
+
+func TestSelectPutsMirrorsKnownNotToDeliverLast(t *testing.T) {
+	// Docker stops at the first mirror that answers, so one known to stall
+	// must not sit ahead of one that has merely never been tried: that spends
+	// a real pull's patience on the candidate with the worse record.
+	broken := Mirror{Name: "broken", URL: "https://broken.example", Outcome: OutcomeFails}
+
+	ranked, _ := Select([]Mirror{
+		broken,
+		mirror("never", "https://never.example", 0),
+		mirror("works", "https://works.example", 400),
+	})
+
+	want := []string{"works", "never", "broken"}
+	if got := names(ranked); !equal(got, want) {
+		t.Errorf("ranked order = %v, want %v", got, want)
+	}
+}
+
+func TestAFailedRunIsNotReportedAsUnmeasured(t *testing.T) {
+	broken := Mirror{Name: "broken", URL: "https://broken.example", Outcome: OutcomeFails}
+
+	_, warnings := Select([]Mirror{
+		broken,
+		mirror("never", "https://never.example", 0),
+	})
+
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %+v, want one unusable and one unmeasured", warnings)
+	}
+	if warnings[0].Code != WarningUnusable || !equal(warnings[0].Names, []string{"broken"}) {
+		t.Errorf("warnings[0] = %+v, want unusable about broken", warnings[0])
+	}
+	if warnings[1].Code != WarningUnmeasured || !equal(warnings[1].Names, []string{"never"}) {
+		t.Errorf("warnings[1] = %+v, want unmeasured about never", warnings[1])
+	}
+}
+
+func TestARateDoesNotVouchForAFailedRun(t *testing.T) {
+	// The interesting shape, and the reason BPS is not a verdict: a transfer
+	// that died part-way leaves a perfectly respectable rate behind it. This
+	// mirror must not be ranked among the working ones, must not be offered a
+	// rate on the page, and must carry the unusable warning.
+	half := Mirror{Name: "half", URL: "https://half.example", BPS: 250_000, Outcome: OutcomeFails}
+
+	ranked, warnings := Select([]Mirror{
+		half,
+		mirror("whole", "https://whole.example", 10),
+	})
+
+	if got := names(ranked); !equal(got, []string{"whole", "half"}) {
+		t.Fatalf("ranked = %v, want the working mirror first", got)
+	}
+	if len(warnings) != 1 || warnings[0].Code != WarningUnusable {
+		t.Fatalf("warnings = %+v, want a single unusable warning", warnings)
+	}
+	if !equal(warnings[0].Names, []string{"half"}) {
+		t.Errorf("unusable names = %v, want [half]", warnings[0].Names)
+	}
+}
+
+func TestAMirrorWithNoVerdictIsStillUnmeasured(t *testing.T) {
+	// The default has to stay undecided. A row measured before the verdict
+	// column existed, or one whose run was throttled rather than refused, is
+	// not evidence that the mirror cannot serve a pull — and treating it as
+	// such would teach the reader that the warning means nothing.
+	_, warnings := Select([]Mirror{{Name: "old", URL: "https://old.example"}})
+
+	if len(warnings) != 1 || warnings[0].Code != WarningUnmeasured {
+		t.Fatalf("warnings = %+v, want a single unmeasured warning", warnings)
 	}
 }
 

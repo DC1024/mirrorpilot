@@ -8,6 +8,7 @@ import (
 
 	"github.com/DC1024/mirrorpilot/internal/configgen"
 	"github.com/DC1024/mirrorpilot/internal/i18n"
+	"github.com/DC1024/mirrorpilot/internal/probe"
 	"github.com/DC1024/mirrorpilot/internal/relay"
 	"github.com/DC1024/mirrorpilot/internal/store"
 )
@@ -19,6 +20,7 @@ import (
 // shipped string is actually shown, so the translations would quietly become
 // dead weight.
 var configWarningKeys = map[configgen.WarningCode]string{
+	configgen.WarningUnusable:   "config.warn.unusable",
 	configgen.WarningUnmeasured: "config.warn.unmeasured",
 	configgen.WarningInsecure:   "config.warn.insecure",
 	configgen.WarningDuplicated: "config.warn.duplicated",
@@ -42,8 +44,14 @@ type configMirrorView struct {
 	// Throughput is the newest measured rate, empty when nothing was measured.
 	Throughput string
 
-	Insecure   bool
+	Insecure bool
+
+	// Unmeasured marks a mirror nobody has tried. Unusable marks one that was
+	// tried and could not hand over a blob. They are separate flags because
+	// they are separate claims, and the page must not make the second while
+	// holding evidence of only the first.
 	Unmeasured bool
+	Unusable   bool
 }
 
 // configWarning is one caveat about the mirrors going into the file.
@@ -238,15 +246,52 @@ func (s *Server) configCandidates(ctx context.Context) ([]configgen.Mirror, int,
 			continue
 		}
 
+		latest := latest[rec.ID]
+		outcome := outcomeFrom(latest.Status)
+
+		// The stored rate is only a rate when the run finished. A transfer
+		// that died part-way still leaves bytes to divide by a duration, and
+		// passing that quotient on as "the speed of this mirror" would
+		// describe a failure as a measurement.
+		var rate int64
+		if outcome == configgen.OutcomeWorks {
+			rate = latest.ThroughputBPS
+		}
+
 		out = append(out, configgen.Mirror{
 			Name:     rec.Name,
 			URL:      rec.URL,
 			Insecure: rec.Insecure,
-			BPS:      latest[rec.ID].ThroughputBPS,
+			BPS:      rate,
+			Outcome:  outcome,
 		})
 	}
 
 	return out, excluded, nil
+}
+
+// outcomeFrom turns a stored probe verdict into configgen's vocabulary.
+//
+// The statuses are plain text in the database — the probe's vocabulary is
+// allowed to grow without a migration — so they are compared as strings here
+// rather than shared as a type. That is also why anything unrecognised has to
+// stay undecided: a build that guesses at a status it does not know is a build
+// that will one day call a working mirror broken.
+//
+// The split follows the probe's own verdict, which is the first layer that
+// went wrong. A completed run works; a run stopped by a host that never
+// answered, a registry that refused us, or a transfer that died is one a pull
+// would also not survive. A 429 and a layer with nothing to do are neither,
+// so they are left open.
+func outcomeFrom(status string) configgen.Outcome {
+	switch probe.Status(status) {
+	case probe.StatusOK:
+		return configgen.OutcomeWorks
+	case probe.StatusFailed, probe.StatusUnreachable, probe.StatusUnauthorized:
+		return configgen.OutcomeFails
+	default:
+		return configgen.OutcomeUnknown
+	}
 }
 
 // relayView assembles the address builder's initial state.
@@ -362,7 +407,8 @@ func newConfigMirrors(ranked []configgen.Mirror) []configMirrorView {
 			Endpoint:   m.Endpoint(),
 			Throughput: humanRate(m.BPS),
 			Insecure:   m.Insecure,
-			Unmeasured: m.BPS <= 0,
+			Unmeasured: m.Outcome == configgen.OutcomeUnknown,
+			Unusable:   m.Outcome == configgen.OutcomeFails,
 		})
 	}
 	return out

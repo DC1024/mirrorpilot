@@ -33,6 +33,7 @@
             {{ else }}<span class="muted">—</span>{{ end }}
           </td>
           <td>
+            {{ if .Unusable }}<span class="pill pill-bad">{{ $.T "config.unusable" }}</span>{{ end }}
             {{ if .Unmeasured }}<span class="pill pill-muted">{{ $.T "config.unmeasured" }}</span>{{ end }}
             {{ if .Insecure }}<span class="pill pill-warn">{{ $.T "config.insecure" }}</span>{{ end }}
           </td>

@@ -143,6 +143,102 @@ func TestConfigCountsTheMirrorsItCannotConfigure(t *testing.T) {
 	}
 }
 
+// tableRow returns the <tr> block that holds needle, so an assertion about one
+// mirror cannot be satisfied by another mirror's row. The page names the same
+// mirror in the table, in the warnings, and in the generated files; only the
+// row says what the page claims about it.
+func tableRow(t *testing.T, body, needle string) string {
+	t.Helper()
+
+	at := strings.Index(body, needle)
+	if at < 0 {
+		t.Fatalf("the page does not mention %q", needle)
+	}
+
+	start := strings.LastIndex(body[:at], "<tr>")
+	end := strings.Index(body[at:], "</tr>")
+	if start < 0 || end < 0 {
+		t.Fatalf("%q is not inside a table row", needle)
+	}
+	return body[start : at+end]
+}
+
+// The whole point of the ranking is that a mirror known to be broken is worse
+// than one nobody has got round to trying, and the page has to say which is
+// which. Calling a measured failure "never measured" is the page telling the
+// reader something it does not know.
+func TestConfigCallsAMeasuredFailureUnusableNotUnmeasured(t *testing.T) {
+	h := seedMirrors(t)
+
+	// A run that reached the registry and then died part-way: the mirror
+	// answered everything, so a rate was left behind, but no image came out.
+	if err := h.store.InsertProbe(t.Context(), store.ProbeRecord{
+		SourceID:         "1ms",
+		StartedAt:        time.Now(),
+		Connectivity:     string(probe.StatusOK),
+		TokenStatus:      string(probe.StatusOK),
+		ManifestStatus:   string(probe.StatusOK),
+		ThroughputStatus: string(probe.StatusFailed),
+		ThroughputBPS:    250_000,
+		Status:           string(probe.StatusFailed),
+		Detail:           "blob transfer timed out after 3.7 MB",
+	}); err != nil {
+		t.Fatalf("InsertProbe: %v", err)
+	}
+
+	body := h.body(h.get("/config"))
+
+	row := tableRow(t, body, "docker.1ms.run")
+	if !strings.Contains(row, "measured, unusable") {
+		t.Errorf("a mirror that was measured and failed is not called unusable:\n%s", row)
+	}
+	if strings.Contains(row, "never measured") {
+		t.Errorf("a mirror that was measured is described as never measured:\n%s", row)
+	}
+	// The rate the dead transfer left behind must not be offered as this
+	// mirror's speed. 250 kB/s is how fast it failed, not how fast it is.
+	if strings.Contains(row, "kB/s") {
+		t.Errorf("a failed run was given a throughput:\n%s", row)
+	}
+
+	if !strings.Contains(body, "was measured and did not work") {
+		t.Error("the page does not warn about the mirror it ranked last")
+	}
+
+	// And the file agrees with the table: a mirror known to stall goes after
+	// the ones nobody has tried.
+	daemon := preContent(t, body, "daemon-json")
+	if strings.Index(daemon, "docker.1ms.run") < strings.Index(daemon, "docker.m.daocloud.io") {
+		t.Errorf("a mirror known not to work was ranked above untried ones:\n%s", daemon)
+	}
+}
+
+// Throttling is not the mirror's fault and says nothing about whether it
+// works, so it must not turn into a verdict either way.
+func TestConfigLeavesARateLimitedMirrorUndecided(t *testing.T) {
+	h := seedMirrors(t)
+
+	if err := h.store.InsertProbe(t.Context(), store.ProbeRecord{
+		SourceID:     "1ms",
+		StartedAt:    time.Now(),
+		Connectivity: string(probe.StatusRateLimited),
+		Status:       string(probe.StatusRateLimited),
+		Detail:       "HTTP 429",
+	}); err != nil {
+		t.Fatalf("InsertProbe: %v", err)
+	}
+
+	body := h.body(h.get("/config"))
+	row := tableRow(t, body, "docker.1ms.run")
+
+	if !strings.Contains(row, "never measured") {
+		t.Errorf("a throttled mirror was not left undecided:\n%s", row)
+	}
+	if strings.Contains(row, "measured, unusable") {
+		t.Errorf("a 429 was turned into a verdict:\n%s", row)
+	}
+}
+
 func TestConfigMergeCarriesThroughSettingsItDoesNotManage(t *testing.T) {
 	h := seedMirrors(t)
 

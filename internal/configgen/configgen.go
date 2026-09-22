@@ -43,10 +43,51 @@ type Mirror struct {
 	// flag changes the generated document and not just the commentary.
 	Insecure bool
 
-	// BPS is the newest measured throughput in bytes per second. Zero means
-	// the mirror has never been measured, which is a different statement from
-	// "measured and found slow", and is ordered accordingly.
+	// BPS is the newest measured throughput in bytes per second, and is only
+	// ever something to show. Zero means there is no rate to show, which is
+	// not a verdict — see Outcome for that.
+	//
+	// Deliberately not a verdict, because it cannot be one. Bytes that arrived
+	// before a transfer died still divide into a plausible number: a mirror
+	// that served 3.7 MB of a 3.85 MB blob and then stalled has a throughput of
+	// a few hundred kilobytes per second and cannot deliver an image. Reading
+	// "non-zero rate" as "works" is how a broken mirror gets ranked first.
 	BPS int64
+
+	// Outcome is the newest measurement's verdict on whether a pull through
+	// this mirror would work.
+	//
+	// Separate from BPS because they answer different questions. BPS says how
+	// fast, and is legitimately non-zero for a transfer that never finished;
+	// Outcome says whether, and is the only thing the ranking and the warnings
+	// are allowed to reason from.
+	Outcome Outcome
+}
+
+// Outcome is a verdict about a mirror.
+type Outcome int
+
+const (
+	// OutcomeUnknown means no verdict: never measured, or measured on a run
+	// that said nothing either way — a 429 is not the mirror's fault and a
+	// probe with no blob to fetch never asked the question.
+	OutcomeUnknown Outcome = iota
+
+	// OutcomeWorks means the newest run completed.
+	OutcomeWorks
+
+	// OutcomeFails means the newest run did not finish: the host did not
+	// answer, refused us, or dropped the transfer part-way.
+	OutcomeFails
+)
+
+// Works reports whether a pull through this mirror would complete.
+//
+// Exported so the page describing the generated file asks the same question
+// the ranking did. Two implementations of "is this mirror any good" is how a
+// table ends up explaining an order the file does not have.
+func (m Mirror) Works() bool {
+	return m.Outcome == OutcomeWorks
 }
 
 // Host returns the mirror's host, or "" when the URL is unusable.
@@ -79,6 +120,15 @@ const (
 	// WarningUnmeasured marks a mirror going into the file without ever
 	// having been measured.
 	WarningUnmeasured WarningCode = "unmeasured"
+
+	// WarningUnusable marks a mirror that was measured and did not work, so a
+	// pull through it would stall or fail.
+	//
+	// Its own code rather than a flavour of WarningUnmeasured: "we have not
+	// tried this" and "we tried this and it did not work" are different
+	// statements, and a page that says the first when it means the second
+	// teaches its reader to distrust it.
+	WarningUnusable WarningCode = "unusable"
 
 	// WarningInsecure marks a mirror that is only reachable over plain HTTP,
 	// or that shares a host with one that is. Using it means accepting that
@@ -114,9 +164,11 @@ var (
 
 // Select ranks mirrors and reports what is worth saying about them.
 //
-// Ordering is by measured throughput, best first, with never-measured mirrors
-// last. Docker tries registry-mirrors in the order they appear and stops at
-// the first that answers, so the order is the whole value of the list: a fast
+// Ordering is by measured throughput, best first, within three standings:
+// mirrors whose newest run worked, mirrors nobody has tried, and mirrors whose
+// newest run did not work.
+// Docker tries registry-mirrors in the order they appear and stops at the
+// first that answers, so the order is the whole value of the list: a fast
 // mirror placed second is a slow mirror.
 //
 // Duplicates are dropped, because a host listed twice costs a round trip and
@@ -143,9 +195,12 @@ func Select(mirrors []Mirror) ([]Mirror, []Warning) {
 		kept = append(kept, m)
 	}
 
-	// Stable, so mirrors that have not been measured keep the order the
-	// catalogue gave them rather than being shuffled by the sort.
+	// Stable, so mirrors with the same standing keep the order the catalogue
+	// gave them rather than being shuffled by the sort.
 	sort.SliceStable(kept, func(i, j int) bool {
+		if rank(kept[i]) != rank(kept[j]) {
+			return rank(kept[i]) < rank(kept[j])
+		}
 		return kept[i].BPS > kept[j].BPS
 	})
 
@@ -158,9 +213,12 @@ func Select(mirrors []Mirror) ([]Mirror, []Warning) {
 		}
 	}
 
-	var unmeasured, insecure []string
+	var unusable, unmeasured, insecure []string
 	for _, m := range kept {
-		if m.BPS <= 0 {
+		switch {
+		case m.Outcome == OutcomeFails:
+			unusable = append(unusable, describe(m))
+		case !m.Works():
 			unmeasured = append(unmeasured, describe(m))
 		}
 		// A host is insecure if any mirror on it is. The flag describes the
@@ -171,7 +229,12 @@ func Select(mirrors []Mirror) ([]Mirror, []Warning) {
 		}
 	}
 
+	// The known-broken go first: they are the ones a reader can act on, and
+	// they are the ones whose presence in the file costs a real timeout.
 	var warnings []Warning
+	if len(unusable) > 0 {
+		warnings = append(warnings, Warning{Code: WarningUnusable, Names: unusable})
+	}
 	if len(unmeasured) > 0 {
 		warnings = append(warnings, Warning{Code: WarningUnmeasured, Names: unmeasured})
 	}
@@ -183,6 +246,24 @@ func Select(mirrors []Mirror) ([]Mirror, []Warning) {
 	}
 
 	return kept, warnings
+}
+
+// rank orders a mirror for the generated file: those that work first, then
+// those nobody has tried, then those known not to.
+//
+// The last two are the interesting decision. An unmeasured mirror might work
+// and a failed one is known not to, so the failed one goes last: Docker tries
+// the list in order, and putting a mirror known to stall ahead of one that has
+// merely not been tried spends a real pull's patience on the wrong candidate.
+func rank(m Mirror) int {
+	switch {
+	case m.Works():
+		return 0
+	case m.Outcome == OutcomeFails:
+		return 2
+	default:
+		return 1
+	}
 }
 
 // endpoints renders the ranked mirrors as registry-mirrors entries.
