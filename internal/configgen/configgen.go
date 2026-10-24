@@ -95,6 +95,14 @@ func (m Mirror) Works() bool {
 // The port is kept when there is one: a mirror on a non-default port is a
 // normal thing, and dropping the port would produce a configuration pointing
 // at the wrong place.
+//
+// The cost of that choice is that what comes back is an authority, not a
+// normalised host. "https://a.com" and "https://a.com:443" are the same
+// registry and produce two different keys, so Select keeps both. Fixing it
+// means knowing which default port goes with which scheme and leaving every
+// other port alone — a small rule, but one that has to be right, for a case no
+// entry in the built-in catalogue produces. Written down here so the next
+// reader knows it was seen rather than missed.
 func (m Mirror) Host() string {
 	u, err := url.Parse(strings.TrimSpace(m.URL))
 	if err != nil {
@@ -172,9 +180,10 @@ var (
 // mirror placed second is a slow mirror.
 //
 // Duplicates are dropped, because a host listed twice costs a round trip and
-// buys nothing. Everything else is kept, including the mirrors with caveats —
-// the reader is told about the caveat rather than having the choice made for
-// them.
+// buys nothing. "Host" here is the authority as written, port included — see
+// Mirror.Host for the one pair this does not catch. Everything else is kept,
+// including the mirrors with caveats — the reader is told about the caveat
+// rather than having the choice made for them.
 func Select(mirrors []Mirror) ([]Mirror, []Warning) {
 	seen := make(map[string]bool, len(mirrors))
 	kept := make([]Mirror, 0, len(mirrors))

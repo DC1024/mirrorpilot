@@ -118,6 +118,18 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 }
 
 // statusRecorder captures the status code for logging.
+//
+// Embedding http.ResponseWriter means every method of that interface passes
+// through untouched. Flush and Hijack are not part of it — they are separate
+// interfaces a handler type-asserts for — so a handler behind this wrapper
+// fails those assertions and silently takes its non-streaming path.
+//
+// Nothing here does that today: every response is written in one piece, so the
+// missing methods are unreachable. This note is here because the first
+// streaming handler (server-sent events, a long download) would hit it before
+// it hit anything else, and because the failure is silent — the assertion just
+// returns false and the response is merely slower. Implementing the methods now
+// would be dead code, so it is a comment instead.
 type statusRecorder struct {
 	http.ResponseWriter
 	status  int
