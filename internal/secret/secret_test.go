@@ -285,3 +285,31 @@ func TestFingerprint(t *testing.T) {
 		t.Errorf("Fingerprint is %d chars, want something short", len(Fingerprint(keyA)))
 	}
 }
+
+// TestFingerprintDoesNotChangeBetweenVersions pins the exact output for one
+// known key.
+//
+// Everything in TestFingerprint compares the function against itself, so all of
+// it stays green if the domain-separation prefix changes. That prefix is not an
+// implementation detail: the fingerprint is written into the vault at setup and
+// compared on every login. Change it and every existing install starts reporting
+// that the stored data is corrupted, which is a data-loss message for what looks
+// like a rename — on the one screen where being wrong costs the user everything.
+//
+// The expected value is written out rather than derived here on purpose.
+// Anything computed from Fingerprint in this test would agree with whatever
+// Fingerprint currently does, which is exactly the property being checked.
+func TestFingerprintDoesNotChangeBetweenVersions(t *testing.T) {
+	key := bytes.Repeat([]byte{0x42}, KeyLen)
+
+	// Reproduced independently from the prefix, the key and SHA-256, so this is
+	// a statement about the format rather than a transcript of one run.
+	const want = "GRpf5LFpQ9Y"
+
+	if got := Fingerprint(key); got != want {
+		t.Errorf("Fingerprint of %d bytes of 0x42 = %q, want %q\n"+
+			"if this change is intended, every existing vault can no longer be "+
+			"verified and will report corruption instead of a wrong password",
+			KeyLen, got, want)
+	}
+}
