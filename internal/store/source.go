@@ -82,9 +82,6 @@ func (s *Store) GetSource(ctx context.Context, id string) (SourceRecord, error) 
 
 	rec, err := scanSource(row)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return SourceRecord{}, err
-		}
 		return SourceRecord{}, err
 	}
 	return rec, nil
