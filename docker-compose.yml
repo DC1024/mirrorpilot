@@ -28,4 +28,18 @@ services:
       # cookie is never sent over HTTP, so logging in would silently fail.
       # - MIRRORPILOT_BASE_URL=https://mirrorpilot.example.com
 
+    # Defence in depth, and free: the process already runs as uid 10001 (see the
+    # Dockerfile), so there is nothing for it to escalate to. What this closes
+    # is the route — a setuid binary or a file capability in the image would be
+    # one, and nothing here needs either. It also means a future base image that
+    # ships one by accident cannot quietly hand the panel more rights than this
+    # file grants it.
+    #
+    # cap_drop: [ALL] is deliberately not here. It should be safe (the panel
+    # binds 8080, above the privileged range, and needs no raw sockets), but
+    # "should be" is not "measured", and a container that fails to start is a
+    # worse outcome than a capability nobody can reach.
+    security_opt:
+      - no-new-privileges:true
+
     restart: unless-stopped
