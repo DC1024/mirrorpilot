@@ -1,0 +1,46 @@
+# Dependency updates as pull requests, so an upgrade is a diff someone reads
+# rather than a red main one morning.
+#
+# This exists because both workflows pin every third-party action to a commit
+# SHA. A pin is only worth having if something moves it: without that, pinning
+# turns into a manual chore, the pins go stale, and the day one of them has to
+# be updated nobody remembers which of the nine were verified. Dependabot
+# rewrites the SHA and the `# vX.Y.Z` comment next to it together, so the comment
+# cannot drift away from what is actually running.
+#
+# Weekly, on Monday, because that is when someone is around to look at the
+# result. A daily schedule would produce more PRs than this repository has
+# activity.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      # Patch and minor arrive as one PR: those are the ones that should be
+      # boring, and reviewing them together is cheaper than reviewing five.
+      # A major version is left out of the group on purpose — it is the one that
+      # needs somebody to read a changelog before merging, and folding it in
+      # with four routine bumps is how it gets merged without being read.
+      go-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      actions-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

@@ -1,5 +1,11 @@
 name: CI
 
+# Every third-party `uses:` below is pinned to a commit SHA, with the version in
+# a trailing comment. A tag like @v4 is a moving pointer: whoever owns the action
+# can retarget it, and the workflow that runs tomorrow is then not the one that
+# ran when the tag was read. Dependabot (.github/dependabot.yml) moves these pins
+# weekly, rewriting the SHA and the comment together.
+
 on:
   push:
     branches: [main]
@@ -64,9 +70,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -121,7 +127,7 @@ jobs:
       # see what moved.
       - name: Upload coverage profile
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage
           path: coverage.out
@@ -162,9 +168,9 @@ jobs:
     # vulnerability database, and that download is the part that hangs.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -193,14 +199,14 @@ jobs:
     # catches a hang long before the default six hours would.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build linux/amd64 and linux/arm64 (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -213,9 +219,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -244,9 +250,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -255,3 +261,19 @@ jobs:
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/actionlint"
+
+      # actionlint validates what a workflow says, not which revision of an
+      # action it names. A `@v4` is a moving pointer: the owner can retarget it
+      # and tomorrow's run is not the one that was reviewed. Every third-party
+      # action here is pinned to a commit SHA, and this is what keeps a new step
+      # from quietly reintroducing a tag — the pins themselves would stay correct
+      # while the rule that makes them worth having eroded one step at a time.
+      - name: Actions are pinned to a commit SHA
+        run: |
+          floating="$(grep -rnE --include='*.yml' '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*[^#]*@v[0-9]' .github/workflows/ || true)"
+          if [ -n "$floating" ]; then
+            echo "these actions are on a floating tag; pin them to a commit SHA:"
+            echo "$floating"
+            exit 1
+          fi
+          echo "every third-party action is pinned to a commit SHA"
