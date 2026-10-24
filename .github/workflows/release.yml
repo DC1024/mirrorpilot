@@ -178,7 +178,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Take the body from the tag message
+        # The tag message is where a human writes down what changed, and until
+        # now it was thrown away. v0.4.0's release page came out at 81 bytes —
+        # a compare link and nothing else — because GitHub's generator lists
+        # merged pull requests, and this repository commits straight to main,
+        # so there were none to list.
+        #
+        # A lightweight tag has no message to take. Checking that the file is
+        # non-empty is not enough: `%(contents)` falls back to the commit
+        # message for a lightweight tag, so it would quietly publish the last
+        # commit's subject as the release notes. Ask what the ref points at
+        # instead. Failing here only skips the page — the image is published
+        # by now — and an empty page is worse than a red job.
+        run: |
+          kind="$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")"
+          if [ "$kind" != "tag" ]; then
+            echo "::error::$GITHUB_REF_NAME is a $kind, not an annotated tag; use 'git tag -a' so the release page has something to say"
+            exit 1
+          fi
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-body.md
+          echo "release body: $(wc -c < release-body.md) bytes"
+
       - name: Create release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          # body_path is prepended to the generated notes, so the tag message
+          # leads and the compare link still lands at the bottom.
+          body_path: release-body.md
           generate_release_notes: true
