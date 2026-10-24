@@ -91,7 +91,6 @@ jobs:
           echo "total coverage: ${total}%"
           echo "Total coverage: **${total}%** (floor 80.0%)" >> "$GITHUB_STEP_SUMMARY"
           awk -v t="$total" 'BEGIN { if (t + 0 < 80.0) { print "coverage fell below the 80.0% floor"; exit 1 } }'
-          retention-days: 14
 
       - name: Build
         run: CGO_ENABLED=0 go build ./...
