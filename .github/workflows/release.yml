@@ -33,10 +33,18 @@ permissions:
 # pushes to the same branch both produce. Whichever run finishes last writes it,
 # so :latest could end up pointing at the older commit.
 #
-# Scope is therefore the ref, not the repository. A tag build does not publish
-# :latest at all — metadata-action gates that tag on is_default_branch — so a
-# batch tag push is three concurrent runs by design, and serialising them would
+# Scope is therefore the ref, not the repository. A tag build publishes only
+# 1.2.3 and 1.2 — the latest and sha rules are both gated on
+# `github.ref_type != 'tag'` further down — so a batch tag push is three
+# concurrent runs that write three different tags, and serialising them would
 # buy nothing but latency.
+#
+# That is only true while both gates hold. When this comment was first written
+# the latest gate read `enable={{is_default_branch}}`, which did not take
+# effect: the v0.4.0 tag build published :latest anyway. Per-ref groups plus a
+# broken latest gate is the worst combination available — three concurrent
+# runs, all writing :latest, and the last one to finish decides what users pull.
+# If the gates are ever loosened, this group has to become per-repository.
 #
 # cancel-in-progress stays false on purpose. Killing a run while it is writing a
 # manifest leaves the tag half-pushed; queueing costs a wait, cancelling costs a
@@ -120,11 +128,22 @@ jobs:
           #
           # This fixes the next tag build, not the past: any sha- tag that was
           # overwritten stays overwritten until that commit is rebuilt.
+          #
+          # latest belongs to the branch build for the same reason, and it took
+          # the v0.4.0 tag to notice it was not doing that. The rule used to
+          # read `enable={{is_default_branch}}`, which is the form the action's
+          # README shows — but on that tag build the handlebars expression came
+          # through unrendered (the log keeps `enable={{is_default_branch}}`
+          # with priority=200 still attached) and :latest was pushed anyway,
+          # moving it from the main build to the tag build of the same commit.
+          # github.ref_type is a plain GitHub expression, evaluated before the
+          # action ever sees it: the same run rendered the sha rule as
+          # `enable=false`, and that is the evidence this line stands on.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref_type != 'tag' }}
             type=sha,format=short,enable=${{ github.ref_type != 'tag' }}
 
       - name: Build and push
