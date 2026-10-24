@@ -48,8 +48,17 @@ jobs:
           go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
           "$(go env GOPATH)/bin/staticcheck" -checks=all ./...
 
-      - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+      # The race detector is a correctness check, not a measurement tool, and
+      # the two are kept apart on purpose: running them together reported 82.1%
+      # for this tree while `go test -cover ./...` — the command a developer
+      # actually types — reports 86.6%. A floor calibrated against a number
+      # nobody can reproduce locally is a floor that gets lowered by whoever
+      # hits it next.
+      - name: Test (race)
+        run: go test -race ./...
+
+      - name: Coverage
+        run: go test -covermode=set -coverprofile=coverage.out ./...
 
       # A number that is computed and then thrown away is not a check. The
       # floor sits below the current total on purpose: it exists to catch a
