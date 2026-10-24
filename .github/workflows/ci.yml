@@ -12,6 +12,24 @@ on:
 permissions:
   contents: read
 
+# Two pushes in quick succession start two runs over the same ref. Neither
+# knows the other exists, so both run to completion, and the older commit's
+# result can land last — which is the one people read in the commit list.
+# Grouping plus cancel-in-progress turns a superseded run into a cancelled one
+# instead of a late verdict on code that has already been replaced.
+#
+# Both parts of the group key are load-bearing. The static prefix and
+# github.workflow together keep this group apart from the one release.yml
+# declares: a called workflow sees the *caller's* name in github.workflow, so
+# the gate release.yml runs here lands in "ci-Release-…" while the standalone
+# run for the same push lands in "ci-CI-…". They must differ — both are started
+# by that one push, and a shared group would let one cancel the other, with a
+# cancelled gate failing the release. GitHub documents this exact trap under
+# "Reusing workflow configurations"; do not "simplify" the key.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test & vet

@@ -10,6 +10,27 @@ permissions:
   contents: write
   packages: write
 
+# Publishing is serialised per ref, and never cancelled.
+#
+# Until this group existed, runs overlapped freely: on 2026-09-22T00:20:52Z
+# three runs (#25, #26, #27) were alive at the same second, and #34/#35 started
+# 39 seconds apart. Overlapping runs are only actually wrong when they publish
+# the same tag, and the one tag two builds can fight over is :latest, which two
+# pushes to the same branch both produce. Whichever run finishes last writes it,
+# so :latest could end up pointing at the older commit.
+#
+# Scope is therefore the ref, not the repository. A tag build does not publish
+# :latest at all — metadata-action gates that tag on is_default_branch — so a
+# batch tag push is three concurrent runs by design, and serialising them would
+# buy nothing but latency.
+#
+# cancel-in-progress stays false on purpose. Killing a run while it is writing a
+# manifest leaves the tag half-pushed; queueing costs a wait, cancelling costs a
+# broken :latest.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # Nothing is published until the checks in ci.yml pass.
   #
