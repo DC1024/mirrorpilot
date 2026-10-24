@@ -374,9 +374,15 @@ func classify(resp *http.Response, payload []byte, method, path string) error {
 	case http.StatusUnprocessableEntity, http.StatusBadRequest:
 		return wrap(ErrRejected)
 	default:
-		if resp.StatusCode >= 500 {
-			return wrap(ErrRejected)
-		}
+		// Everything else, 5xx included — and that is a wart, not a judgement:
+		// a GitHub outage gets reported as "GitHub refused the request", which
+		// reads like a problem with what the user submitted. It is left alone
+		// here because the honest fix is a third sentinel, and syncMessageKey is
+		// a switch on errors.Is: a sentinel without a matching branch there
+		// compiles, passes the tests, and turns the page's message into
+		// error.internal, which is less useful than the wrong-but-informative
+		// text above. That change has to land in four places at once, so it
+		// belongs in a commit of its own.
 		return wrap(ErrRejected)
 	}
 }
