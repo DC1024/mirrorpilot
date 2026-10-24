@@ -107,12 +107,25 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.IMAGE }}
+          # A commit gets built twice here: once when it lands on main, and again
+          # if it is also tagged. Both builds used to publish sha-<short>, and
+          # the two images are not the same — main.Version is "main" in one and
+          # "v1.2.3" in the other, so /api/health reports whichever build pushed
+          # last. Runs #34 and #35 did exactly that, 39 seconds apart.
+          #
+          # The sha tag therefore belongs to the branch build alone. A tag build
+          # is already identified by 1.2.3 and 1.2, which are the names someone
+          # deploying a specific version will use; a second name for the same
+          # build buys nothing and is the one that collides.
+          #
+          # This fixes the next tag build, not the past: any sha- tag that was
+          # overwritten stays overwritten until that commit is rebuilt.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short
+            type=sha,format=short,enable=${{ github.ref_type != 'tag' }}
 
       - name: Build and push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
