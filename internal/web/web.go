@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/DC1024/mirrorpilot/internal/auth"
 	"github.com/DC1024/mirrorpilot/internal/i18n"
@@ -118,6 +119,11 @@ type Server struct {
 	tmpl map[string]*template.Template
 	mux  *http.ServeMux
 	root http.Handler
+
+	// probeBatch is held for the length of a batch probe. Measuring is manual
+	// and a batch talks to community mirrors, so a second tab pressing the same
+	// button should be told no rather than doubling the requests.
+	probeBatch sync.Mutex
 }
 
 // New builds the panel handler, parsing every template up front so a broken one
@@ -609,6 +615,7 @@ var flashKeys = map[string]bool{
 
 	"probe.ran":               true,
 	"probe.error.unavailable": true,
+	"probe.error.busy":        true,
 	"probe.error.target":      true,
 
 	"config.relay.saved":   true,

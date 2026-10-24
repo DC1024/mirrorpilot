@@ -140,6 +140,7 @@
   "probe.egress_direct": "当前进程没有设置代理变量，探测走直连。换一台机器、换一个城市或换一家宽带，这些源的排名可能完全不同。",
   "probe.egress_proxied": "当前进程配置了代理，探测会经过它。此时测到的既是镜像源，也是代理到各镜像源的链路。",
   "probe.egress_title": "这些数字是怎么来的",
+  "probe.error.busy": "已经有一批测量在跑。等它结束 —— 再发起一批只会让这些镜像承受双倍请求。",
   "probe.error.target": "要测的镜像不可用，请到「设置」里检查仓库名与 tag/digest。",
   "probe.error.unavailable": "当前构建没有接入探测引擎，无法在这里测速。",
   "probe.limits_body": "这些数字能说明什么、不能说明什么：",

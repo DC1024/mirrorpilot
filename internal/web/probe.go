@@ -438,6 +438,25 @@ func (s *Server) handleProbeRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One batch at a time.
+	//
+	// A batch talks to mirrors run by volunteers, and the interval floor
+	// elsewhere in this codebase is justified in exactly those words. Two tabs
+	// pressing the same button is not a rare accident — it is what a page with
+	// no disabled state does when the first click seems to have done nothing —
+	// and without this it doubles every request in the batch.
+	//
+	// TryLock rather than Lock: the second visitor is told the truth
+	// immediately instead of being queued behind a minute of measurement with
+	// nothing on screen. Single-mirror probes are deliberately not gated: they
+	// are one mirror's worth of traffic, and the reason to press one is usually
+	// that a batch is running and you want to look at something specific.
+	if !s.probeBatch.TryLock() {
+		redirect(w, r, "/probe?flash=probe.error.busy")
+		return
+	}
+	defer s.probeBatch.Unlock()
+
 	sources, err := catalog.EnabledForDockerHub(ctx, s.store)
 	if err != nil {
 		s.fail(w, r, "web: list mirrors to probe", err)

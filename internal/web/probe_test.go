@@ -776,3 +776,76 @@ func TestSparklineGeometry(t *testing.T) {
 		t.Errorf("samples = %d, want 2", rise.Samples)
 	}
 }
+
+// A batch is refused while another one is running.
+//
+// The gate exists because a batch talks to mirrors run by volunteers, and the
+// interval floor elsewhere is justified in exactly those words. Two tabs is not
+// a rare accident — it is what a page with no disabled state does when the
+// first click seems to have done nothing.
+//
+// The test holds the gate directly rather than starting a real batch in a
+// goroutine: no sleep, no guessing when the first run is far enough inside
+// RunAll to overlap. The field is the same one the handler takes.
+func TestBatchIsRefusedWhileAnotherIsRunning(t *testing.T) {
+	fake := &fakeProber{}
+	h := newHarness(t, withProbe(fake))
+	h.setup()
+	h.seedBuiltin()
+
+	h.server.probeBatch.Lock()
+
+	resp := h.post("/probe", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /probe while busy = %d, want 303; body: %s", resp.StatusCode, h.body(resp))
+	}
+	if got := resp.Header.Get("Location"); got != "/probe?flash=probe.error.busy" {
+		t.Errorf("Location = %q, want the busy flash", got)
+	}
+	if got := len(fake.batches()); got != 0 {
+		t.Errorf("RunAll ran %d times while the gate was held, want none", got)
+	}
+
+	// The redirect alone proves nothing: an unlisted key is dropped by the
+	// flash whitelist and the page renders empty, which looks exactly like a
+	// working redirect from the outside.
+	if body := h.body(h.get("/probe?flash=probe.error.busy")); !strings.Contains(body, testTranslator(t).T("probe.error.busy")) {
+		t.Error("the busy flash never reached the page: its key is missing from the flash whitelist")
+	}
+
+	h.server.probeBatch.Unlock()
+
+	// Two batches in a row, because the first one is what would leak the gate.
+	// A single follow-up proves nothing here: the test released the lock
+	// itself, so a handler that never unlocked would still look fine once.
+	for i := range 2 {
+		resp := h.post("/probe", nil)
+		if got := resp.Header.Get("Location"); got != "/probe?flash=probe.ran" {
+			t.Fatalf("batch %d after the gate opened: Location = %q, want the ran flash", i+1, got)
+		}
+	}
+	if got := len(fake.batches()); got != 2 {
+		t.Errorf("RunAll ran %d times, want twice", got)
+	}
+}
+
+// Probing one mirror is deliberately not gated: it is one mirror's worth of
+// traffic, and the reason to press it is usually that a batch is running and
+// you want to look at something specific.
+func TestOneMirrorIsProbedWhileABatchIsRunning(t *testing.T) {
+	fake := &fakeProber{}
+	h := newHarness(t, withProbe(fake))
+	h.setup()
+	h.seedBuiltin()
+
+	h.server.probeBatch.Lock()
+	defer h.server.probeBatch.Unlock()
+
+	resp := h.post("/probe", url.Values{"id": {"daocloud"}})
+	if got := resp.Header.Get("Location"); got != "/probe?flash=probe.ran" {
+		t.Errorf("Location = %q, want the single-mirror run to go ahead", got)
+	}
+	if got := len(fake.one); got != 1 {
+		t.Errorf("single-mirror probe ran %d times, want once", got)
+	}
+}

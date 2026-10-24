@@ -140,6 +140,7 @@
   "probe.egress_direct": "No proxy variables are set, so the probe connects directly. A pull from another machine, another city or another provider can rank these mirrors very differently.",
   "probe.egress_proxied": "This process has a proxy configured, so the probe goes through it. What gets measured is the proxy's path to each mirror as much as the mirror itself.",
   "probe.egress_title": "Where these numbers come from",
+  "probe.error.busy": "A batch is already running. Wait for it to finish — starting a second one only doubles the load on these mirrors.",
   "probe.error.target": "The image to measure is not usable. Check the repository and reference in Settings.",
   "probe.error.unavailable": "This build has no probe engine wired up, so mirrors cannot be measured here.",
   "probe.limits_body": "What these numbers do and do not tell you:",
