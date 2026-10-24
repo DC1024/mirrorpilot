@@ -30,10 +30,24 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job below carries an explicit timeout. The default is 360 minutes, which
+# is less a limit than the absence of one: a run wedged on a hung `go install`,
+# a stalled module download or a registry that stopped answering sits there for
+# six hours before anything reports it.
+#
+# The numbers are sized against what these jobs actually cost — the slowest
+# Test & vet run on record took 268s — with room for a cold cache, not for a
+# regression. They are a hung-run detector, not a performance budget.
+#
+# This got more important, not less, when the concurrency group above landed:
+# with cancel-in-progress off on the release pipeline, a wedged run no longer
+# just wastes minutes, it holds the queue for that ref and every later push sits
+# behind it.
 jobs:
   test:
     name: Test & vet
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -118,6 +132,9 @@ jobs:
   vulnerabilities:
     name: Vulnerability scan
     runs-on: ubuntu-latest
+    # Generous relative to the ~31s it costs, because a cold run has to fetch the
+    # vulnerability database, and that download is the part that hangs.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -145,6 +162,10 @@ jobs:
   build-multiarch:
     name: Multi-arch image build
     runs-on: ubuntu-latest
+    # Emulated arm64 is the slowest thing here and the least predictable: with a
+    # warm cache it is ~112s, from cold it is a different job. 30 minutes still
+    # catches a hang long before the default six hours would.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -164,6 +185,7 @@ jobs:
   i18n-check:
     name: i18n key parity
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
