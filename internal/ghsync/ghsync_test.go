@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -498,17 +502,21 @@ func TestRunsDefaultsThePageSize(t *testing.T) {
 	}
 }
 
-func TestAServerErrorIsReportedAsARejection(t *testing.T) {
-	// A 500 is GitHub's problem, not the reader's, but it still has to arrive
-	// as a typed error with something readable in it.
+func TestAServerErrorIsReportedAsAnUpstreamFailure(t *testing.T) {
+	// A 500 is GitHub's problem, not the reader's. It used to arrive as
+	// ErrRejected, which reads like a complaint about what was submitted and
+	// sends people to check a form that is fine.
 	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("upstream is unwell"))
 	})
 
 	_, err := h.client(t).User(context.Background())
-	if !errors.Is(err, ErrRejected) {
-		t.Fatalf("err = %v, want ErrRejected", err)
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("err = %v, want ErrUpstream", err)
+	}
+	if errors.Is(err, ErrRejected) {
+		t.Error("a server error still matches ErrRejected; the two are now different instructions")
 	}
 	if !strings.Contains(err.Error(), "internal server error") {
 		t.Errorf("err = %v, want the status text", err)
@@ -574,4 +582,80 @@ func TestWorkflowYAMLDeclaresWhatItNeeds(t *testing.T) {
 	if strings.Contains(WorkflowYAML, "actions/checkout") {
 		t.Error("the workflow checks out the repository, which it never needs")
 	}
+}
+
+// TestSentinelsListsEveryErrorInThisPackage parses the package's own sources and
+// holds the result against Sentinels.
+//
+// The failure this catches is adding a sentinel to a var block and never listing
+// it. Nothing references the new value yet, the list's length does not change,
+// and every other test stays green — but web.syncMessageKey is checked against
+// that list, so the page would render "something went wrong" for it and no test
+// would fail. Reading the source is the only way to see a value that nothing
+// uses yet.
+//
+// Only package-level `var X = errors.New(...)` counts. The errors.New calls
+// inside functions are not sentinels a caller can test for.
+func TestSentinelsListsEveryErrorInThisPackage(t *testing.T) {
+	declared := declaredErrorNames(t)
+	listed := Sentinels()
+
+	if len(declared) != len(listed) {
+		t.Errorf("the package declares %d package-level error values (%s) but Sentinels lists %d;\n"+
+			"a sentinel that is not listed is invisible to web.syncMessageKey",
+			len(declared), strings.Join(declared, ", "), len(listed))
+	}
+}
+
+// declaredErrorNames returns the names of the package-level `var X = errors.New(...)`
+// declarations in this directory's non-test sources.
+func declaredErrorNames(t *testing.T) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read the package directory: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	var names []string
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+
+		ast.Inspect(file, func(node ast.Node) bool {
+			spec, ok := node.(*ast.ValueSpec)
+			if !ok || len(spec.Values) != 1 {
+				return true
+			}
+
+			call, ok := spec.Values[0].(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkg, ok := sel.X.(*ast.Ident)
+			if !ok || pkg.Name != "errors" || sel.Sel.Name != "New" {
+				return true
+			}
+
+			for _, ident := range spec.Names {
+				names = append(names, ident.Name)
+			}
+			return true
+		})
+	}
+
+	return names
 }

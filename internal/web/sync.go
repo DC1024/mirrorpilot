@@ -507,7 +507,10 @@ func splitImages(raw string) []string {
 // syncMessageKey maps a failed GitHub call onto something the page can say.
 //
 // Written out here rather than built from an error's text, so the catalogue
-// check can see which keys this file consumes.
+// check can see which keys this file consumes. Every sentinel in
+// ghsync.Sentinels needs a case: one without it falls through to error.internal,
+// which is not a crash but is a strictly less useful answer than the wrong one
+// it replaced.
 func syncMessageKey(err error) string {
 	switch {
 	// store.ErrNotFound is "no token is stored yet", which is the same
@@ -522,6 +525,8 @@ func syncMessageKey(err error) string {
 		return "sync.error.rate_limited"
 	case errors.Is(err, ghsync.ErrRejected):
 		return "sync.error.rejected"
+	case errors.Is(err, ghsync.ErrUpstream):
+		return "sync.error.upstream"
 	case errors.Is(err, ghsync.ErrInvalid):
 		return "sync.error.spec"
 	case errors.Is(err, auth.ErrLocked):
@@ -539,7 +544,9 @@ func syncMessageKey(err error) string {
 // fixed instruction instead get no detail.
 func syncDetail(err error, key string) string {
 	switch key {
-	case "sync.error.rejected", "sync.error.not_found":
+	// upstream carries the status text ("bad gateway"), which is the difference
+	// between "GitHub is having a bad day" and "we asked for the wrong thing".
+	case "sync.error.rejected", "sync.error.not_found", "sync.error.upstream":
 		return err.Error()
 	default:
 		return ""

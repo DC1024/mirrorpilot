@@ -290,6 +290,7 @@
   "sync.error.spec": "The repository is not set up properly. An owner and a repository are both needed, or both blank.",
   "sync.error.target": "The target registry is not set up properly. A registry host and a namespace are both needed, or both blank.",
   "sync.error.token": "No GitHub token is usable. Store one below, or check that the stored one has not been revoked.",
+  "sync.error.upstream": "GitHub could not answer. That is a fault on their side, not something to fix here — wait a little and try again.",
   "sync.field.acr_password": "Registry password",
   "sync.field.github_token": "GitHub token",
   "sync.field.namespace": "Namespace",

@@ -290,6 +290,7 @@
   "sync.error.spec": "仓库设置不完整。账号和仓库名要么都填，要么都留空。",
   "sync.error.target": "目标仓库设置不完整。仓库主机和命名空间要么都填，要么都留空。",
   "sync.error.token": "没有可用的 GitHub 令牌。请在下面保存一个，或确认已保存的那个没有被吊销。",
+  "sync.error.upstream": "GitHub 那边没有应答。这是它那一侧的故障，不是这里能改的 —— 稍等一会儿再试。",
   "sync.field.acr_password": "仓库密码",
   "sync.field.github_token": "GitHub 令牌",
   "sync.field.namespace": "命名空间",

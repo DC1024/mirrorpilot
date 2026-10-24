@@ -39,7 +39,30 @@ var (
 	ErrNotFound     = errors.New("ghsync: not found")
 	ErrRateLimited  = errors.New("ghsync: GitHub rate limit reached")
 	ErrRejected     = errors.New("ghsync: GitHub rejected the request")
+	ErrUpstream     = errors.New("ghsync: GitHub could not answer")
 )
+
+// Sentinels lists every error a caller may test for with errors.Is.
+//
+// Exported so the layer that turns these into sentences can be checked against
+// the list instead of against its own memory of it. A switch on errors.Is has no
+// compile-time exhaustiveness: a sentinel with no matching case falls through to
+// the default, and there the default is "something went wrong" — less useful
+// than the wrong-but-specific message it replaced, and it fails nothing.
+//
+// ErrInvalid is declared in ghsync.go rather than in the block above, but it is
+// part of the same contract and belongs here.
+func Sentinels() []error {
+	return []error{
+		ErrUnauthorized,
+		ErrForbidden,
+		ErrNotFound,
+		ErrRateLimited,
+		ErrRejected,
+		ErrUpstream,
+		ErrInvalid,
+	}
+}
 
 // Client talks to the GitHub REST API.
 type Client struct {
@@ -374,16 +397,16 @@ func classify(resp *http.Response, payload []byte, method, path string) error {
 	case http.StatusUnprocessableEntity, http.StatusBadRequest:
 		return wrap(ErrRejected)
 	default:
-		// Everything else, 5xx included — and that is a wart, not a judgement:
-		// a GitHub outage gets reported as "GitHub refused the request", which
-		// reads like a problem with what the user submitted. It is left alone
-		// here because the honest fix is a third sentinel, and syncMessageKey is
-		// a switch on errors.Is: a sentinel without a matching branch there
-		// compiles, passes the tests, and turns the page's message into
-		// error.internal, which is less useful than the wrong-but-informative
-		// text above. That change has to land in four places at once, so it
-		// belongs in a commit of its own.
-		return wrap(ErrRejected)
+		// Everything else: 5xx, and the 4xx codes not named above. GitHub
+		// failing to answer is not the reader's mistake, and reporting it as a
+		// rejection sends them to check a form that is fine.
+		//
+		// 429 lands here too, and that is the one case this gets wrong: a rate
+		// limit is not an outage, and "wait" is the instruction it calls for.
+		// Left alone because GitHub's primary limit answers 403, which is
+		// handled above, and splitting 429 out means another sentinel and
+		// another message to write.
+		return wrap(ErrUpstream)
 	}
 }
 
