@@ -8,6 +8,15 @@ on:
   # Callable so the release pipeline can gate publishing on these checks
   # instead of running beside them. See release.yml.
   workflow_call:
+  # Advisories are published against code that has not changed. Pushing is not
+  # what makes a dependency vulnerable, so waiting for the next push means a
+  # library that turns dangerous in March goes unreported until someone happens
+  # to touch the repository. This runs whether or not anyone is working.
+  #
+  # Monday 06:00 UTC, before the week starts, so a finding is waiting rather
+  # than arriving mid-afternoon. Scheduled runs only fire on the default branch.
+  schedule:
+    - cron: '0 6 * * 1'
 
 permissions:
   contents: read
@@ -18,7 +27,7 @@ permissions:
 # Grouping plus cancel-in-progress turns a superseded run into a cancelled one
 # instead of a late verdict on code that has already been replaced.
 #
-# Both parts of the group key are load-bearing. The static prefix and
+# Every part of the group key is load-bearing. The static prefix and
 # github.workflow together keep this group apart from the one release.yml
 # declares: a called workflow sees the *caller's* name in github.workflow, so
 # the gate release.yml runs here lands in "ci-Release-…" while the standalone
@@ -26,8 +35,14 @@ permissions:
 # by that one push, and a shared group would let one cancel the other, with a
 # cancelled gate failing the release. GitHub documents this exact trap under
 # "Reusing workflow configurations"; do not "simplify" the key.
+#
+# event_name is there for the schedule above. A scheduled run sits on the same
+# ref as every push, so without it the Monday run would cancel whatever build
+# happened to be in flight, and a push landing at 05:59 would cancel the
+# security scan instead. Two runs only belong in one group when the newer one
+# genuinely supersedes the older, and a cron run supersedes nothing.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 # Every job below carries an explicit timeout. The default is 360 minutes, which
