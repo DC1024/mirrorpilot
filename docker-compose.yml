@@ -34,12 +34,23 @@ services:
     # one, and nothing here needs either. It also means a future base image that
     # ships one by accident cannot quietly hand the panel more rights than this
     # file grants it.
-    #
-    # cap_drop: [ALL] is deliberately not here. It should be safe (the panel
-    # binds 8080, above the privileged range, and needs no raw sockets), but
-    # "should be" is not "measured", and a container that fails to start is a
-    # worse outcome than a capability nobody can reach.
     security_opt:
       - no-new-privileges:true
+
+    # Dropping every capability is free too, and it is measured rather than
+    # assumed. With cap_drop: [ALL] the process starts with CapEff, CapPrm and
+    # CapBnd all 0x0, completes setup (password hashing, session, the first
+    # SQLite WAL write), serves the dashboard, and stays healthy with zero
+    # restarts. Nothing in the binary needs a capability: it binds 8080, above
+    # the privileged range; it opens no raw sockets; and it runs as a non-root
+    # uid that never calls setuid.
+    #
+    # Measured on 2026-10-25 against the image built from 6e13bdc, Docker
+    # 29.7.2, on a host where the data directory was already owned by 10001.
+    # If a future change does need a capability, the container fails loudly at
+    # start instead of quietly degrading, and the fix is to add that one back
+    # with cap_add rather than to delete these lines.
+    cap_drop:
+      - ALL
 
     restart: unless-stopped
