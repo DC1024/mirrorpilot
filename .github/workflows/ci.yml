@@ -72,15 +72,17 @@ jobs:
 
       # A number that is computed and then thrown away is not a check.
       #
-      # The floor is set below the lower of the two numbers this tree produces
-      # for the same commit — Linux reports 82.1%, a Windows dev box reports
-      # 86.6% — because a threshold only one platform can meet is a threshold
-      # that gets lowered by whoever hits it first. At 80.0% it still trips on
-      # a real regression: 2.1 points is roughly a whole package losing its
-      # tests, not a formatting change.
+      # 80.0% is 2.1 points under what this tree measures on CI. That margin is
+      # wider than it looks, because the measurement is not portable across Go
+      # patch releases: go1.27.0 instruments 4468 statements for this tree and
+      # reports 86.6%, while go1.27.3 instruments 3090 and reports 82.1% — with
+      # the same source and the same tests. The instrumented shape changed, not
+      # the coverage.
       #
-      # Raise it deliberately, with the CI number in hand. Never lower it to
-      # turn a red build green.
+      # setup-go follows go.mod's `go 1.27` to the newest patch, and that is the
+      # right behaviour, because a patch release is where standard-library fixes
+      # arrive. The consequence is that this threshold is tied to the toolchain:
+      # re-measure on CI before changing it, and never lower it to go green.
       - name: Coverage floor
         run: |
           total="$(go tool cover -func=coverage.out | awk '/^total:/ { sub(/%/, "", $NF); print $NF }')"
