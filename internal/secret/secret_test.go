@@ -270,7 +270,12 @@ func TestFingerprint(t *testing.T) {
 	keyA := bytes.Repeat([]byte{0xaa}, KeyLen)
 	keyB := bytes.Repeat([]byte{0xbb}, KeyLen)
 
-	if Fingerprint(keyA) != Fingerprint(keyA) {
+	// Throttled through variables so the comparison is a real one: written as
+	// Fingerprint(keyA) != Fingerprint(keyA) it was a constant false, and the
+	// assertion never ran.
+	first := Fingerprint(keyA)
+	again := Fingerprint(keyA)
+	if first != again {
 		t.Error("Fingerprint is not stable for the same key")
 	}
 	if Fingerprint(keyA) == Fingerprint(keyB) {

@@ -36,6 +36,18 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # go vet only reports what the compiler can prove. staticcheck covers the
+      # classes of mistake that are perfectly legal Go: a comparison that is
+      # constant false, a Printf verb that does not match its argument, code
+      # that cannot be reached. It already found one of the first kind here.
+      #
+      # Pinned, because an unpinned linter turns "a new release came out" into
+      # "main is red". Bump this deliberately, in its own commit.
+      - name: Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+          "$(go env GOPATH)/bin/staticcheck" -checks=all ./...
+
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
 
