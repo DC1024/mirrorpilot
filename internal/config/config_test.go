@@ -1,8 +1,11 @@
 package config
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -263,4 +266,103 @@ func TestZeroIntervalDisablesTheSweep(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate on a disabled sweep: %v", err)
 	}
+}
+
+var (
+	// Any mention of an environment variable, in a README or in Go source.
+	envMention = regexp.MustCompile(`MIRRORPILOT_[A-Z0-9_]+`)
+	// A *complete* string literal naming one. This is what a read looks like,
+	// whether it goes through os.Getenv("X") directly or through a helper like
+	// envOr("X", fallback): in both the name is the whole literal, so prose
+	// that merely mentions a variable cannot pass for a read.
+	envLiteral = regexp.MustCompile(`"MIRRORPILOT_[A-Z0-9_]+"`)
+)
+
+// TestDocumentedEnvVarsMatchTheCode pins the flag table in both READMEs to the
+// code that reads the variables.
+//
+// MIRRORPILOT_CONFIG sat in both files for a long time as the documented way to
+// point the panel at a config file, while nothing read it. Anyone who set it got
+// the default path, no error, and nothing to search the logs for. Documenting a
+// variable that does not exist is the dangerous direction — the reverse is only
+// untidy — but both are checked here because the fix is the same.
+func TestDocumentedEnvVarsMatchTheCode(t *testing.T) {
+	t.Parallel()
+
+	read, err := envVarsReadByCode()
+	if err != nil {
+		t.Fatalf("scan the source tree: %v", err)
+	}
+	// Without this the test passes vacuously if the walk ever looks in the wrong
+	// place, which is the failure mode that makes a guard worthless.
+	if len(read) == 0 {
+		t.Fatal("found no MIRRORPILOT_* literal in the source tree")
+	}
+
+	for _, doc := range []string{"../../README.md", "../../README.zh-CN.md"} {
+		body, readErr := os.ReadFile(doc)
+		if readErr != nil {
+			t.Fatalf("read %s: %v", doc, readErr)
+		}
+
+		documented := map[string]bool{}
+		for _, name := range envMention.FindAllString(string(body), -1) {
+			documented[name] = true
+		}
+
+		for _, name := range sortedKeys(documented) {
+			if !read[name] {
+				t.Errorf("%s documents %s, but no production code reads it: setting it would do nothing, silently", doc, name)
+			}
+		}
+		for _, name := range sortedKeys(read) {
+			if !documented[name] {
+				t.Errorf("%s does not document %s, which the code reads", doc, name)
+			}
+		}
+	}
+}
+
+// envVarsReadByCode collects every MIRRORPILOT_* name the non-test source
+// spells out.
+func envVarsReadByCode() (map[string]bool, error) {
+	found := map[string]bool{}
+
+	// Tests run with the package as the working directory.
+	err := filepath.WalkDir("../..", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if path != "../.." && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "vendor") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		for _, literal := range envLiteral.FindAllString(string(body), -1) {
+			found[strings.Trim(literal, `"`)] = true
+		}
+
+		return nil
+	})
+
+	return found, err
+}
+
+func sortedKeys(set map[string]bool) []string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	return keys
 }

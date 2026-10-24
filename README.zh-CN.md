@@ -139,7 +139,7 @@ probe:
 
 | 参数 | 环境变量 | 含义 |
 |---|---|---|
-| `-config` | `MIRRORPILOT_CONFIG` | 配置文件路径（默认 `<数据目录>/config.yaml`） |
+| `-config` | — | 配置文件路径（默认 `<数据目录>/config.yaml`）。只有命令行参数，没有对应的环境变量 |
 | `-data` | `MIRRORPILOT_DATA` | 持久化数据目录（默认 `/data`） |
 | `-listen` | `MIRRORPILOT_BIND` | 监听地址（默认 `0.0.0.0:8080`） |
 | `-reset` | — | 删除账号、会话与已保存凭据后退出（推倒重来；不恢复任何东西） |

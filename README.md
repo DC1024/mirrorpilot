@@ -140,7 +140,7 @@ probe:
 
 | Flag | Environment | Meaning |
 |---|---|---|
-| `-config` | `MIRRORPILOT_CONFIG` | Config file path (default `<data dir>/config.yaml`) |
+| `-config` | — | Config file path (default `<data dir>/config.yaml`). Flag only: there is no environment variable for it |
 | `-data` | `MIRRORPILOT_DATA` | Persistent data directory (default `/data`) |
 | `-listen` | `MIRRORPILOT_BIND` | Listen address (default `0.0.0.0:8080`) |
 | `-reset` | — | Delete the account, sessions and stored credentials, then exit (start over; recovers nothing) |
