@@ -80,6 +80,17 @@ jobs:
             exit 1
           fi
 
+      # go.mod and go.sum are source too, and they drift silently: a `go get` to
+      # try something out, an import deleted without a tidy, a require marked
+      # // indirect that no longer is. None of that fails a build — it just
+      # leaves the dependency list describing a tree that no longer exists.
+      #
+      # -diff reports what is stale and exits non-zero without writing to the
+      # tree, so a red run shows exactly the lines to apply instead of leaving a
+      # dirty checkout for the next step.
+      - name: Verify go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
       - name: go vet
         run: go vet ./...
 
