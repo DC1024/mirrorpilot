@@ -51,6 +51,31 @@ jobs:
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
 
+      # A number that is computed and then thrown away is not a check. The
+      # floor sits below the current total on purpose: it exists to catch a
+      # drop, not to insist that every new line arrives with a test the same
+      # day. Raise it deliberately; never lower it to make a red build green.
+      - name: Coverage floor
+        run: |
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ { sub(/%/, "", $NF); print $NF }')"
+          if [ -z "$total" ]; then
+            echo "the profile has no total line"
+            exit 1
+          fi
+          echo "total coverage: ${total}%"
+          echo "Total coverage: **${total}%** (floor 85.0%)" >> "$GITHUB_STEP_SUMMARY"
+          awk -v t="$total" 'BEGIN { if (t + 0 < 85.0) { print "coverage fell below the 85.0% floor"; exit 1 } }'
+
+      # Uploaded because the floor only says that something dropped. Finding
+      # out which function lost its test needs the profile, and re-running the
+      # suite locally to get it is the part nobody does.
+      - name: Upload coverage profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 14
+
       - name: Build
         run: CGO_ENABLED=0 go build ./...
 
