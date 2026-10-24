@@ -9,8 +9,10 @@ package web
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/DC1024/mirrorpilot/internal/auth"
@@ -235,7 +238,16 @@ func (s *Server) routes() *http.ServeMux {
 		// nothing.
 		panic(fmt.Sprintf("web: static assets are not embedded: %v", err))
 	}
-	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheImmutable(http.FileServer(http.FS(static)))))
+	// The bytes are the only thing there is to hash: //go:embed reports a zero
+	// modification time for every file, so FileServer has no Last-Modified to
+	// offer and invents no ETag either.
+	tags, err := staticETags(static)
+	if err != nil {
+		// Same shape of mistake as the Sub above: the files are embedded, so a
+		// read failure means the embed directive and this code disagree.
+		panic(fmt.Sprintf("web: static assets are not hashable: %v", err))
+	}
+	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheStatic(tags, http.FileServer(http.FS(static)))))
 
 	// Unauthenticated, and deliberately so: a healthcheck that needs a login is
 	// useless to the thing doing the checking.
@@ -470,10 +482,63 @@ func randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// cacheImmutable marks hashed static assets cacheable for a long time.
-func cacheImmutable(next http.Handler) http.Handler {
+// staticETags maps each embedded asset's request path to a strong entity tag
+// derived from its bytes. Hashing at startup costs one read of two small files
+// and is the only way to give the browser something to revalidate against.
+//
+// Keys are cleaned absolute paths. StripPrefix leaves "app.css" rather than
+// "/app.css" in the request, and FileServer cleans whatever it is given, so
+// both sides go through path.Clean to agree on one spelling.
+func staticETags(fsys fs.FS) (map[string]string, error) {
+	tags := make(map[string]string)
+	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(body)
+		tags[path.Clean("/"+name)] = fmt.Sprintf("%q", "sha256:"+hex.EncodeToString(sum[:16]))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tags, nil
+}
+
+// cacheStatic makes the browser ask before reusing a static asset.
+//
+// These files are not content-addressed — the templates link to
+// /static/app.css and /static/app.js by name — so a long max-age outlives an
+// upgrade, and a browser keeps running last release's JavaScript against this
+// release's markup for as long as the max-age says. The symptom is a page that
+// behaves like the old version for one person and like the new one for the
+// next, with nothing in any log to explain it.
+//
+// no-cache is the fix, not no-store: the copy may be kept, it just has to be
+// revalidated first. With the ETag that revalidation is a 304 with no body, so
+// the cost of being correct here is one round trip on a connection the browser
+// has usually already opened.
+//
+// The header has to be set before FileServer runs, because that is the whole
+// mechanism: http.ServeContent reads the ETag off the ResponseWriter and
+// answers If-None-Match itself. Writing the 304 here as well would be a second
+// implementation of the same rule, and the mutation check confirmed it was
+// dead code — deleting it changed nothing, because ServeContent had already
+// answered. TestStaticAssetsAreRevalidated is what keeps that true if the
+// handler underneath ever stops being FileServer.
+func cacheStatic(tags map[string]string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Header().Set("Cache-Control", "no-cache")
+
+		// An unknown name is not an asset we hashed: FileServer still owns the
+		// 404, and it should not carry an ETag borrowed from another file.
+		if etag, ok := tags[path.Clean("/"+r.URL.Path)]; ok {
+			w.Header().Set("ETag", etag)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
