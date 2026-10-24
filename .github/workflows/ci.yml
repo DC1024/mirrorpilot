@@ -196,3 +196,36 @@ jobs:
 
       - name: Check locale files have identical key sets
         run: go test ./internal/i18n/ -run 'TestKeyParity|TestPlaceholdersAgree|TestNoEmptyValues' -v
+
+  # Nothing else in this pipeline reads the workflow files themselves. A typo in
+  # a key name, or an expression naming a property that github does not have, is
+  # valid YAML: the file parses, the run is accepted, and the mistake surfaces
+  # only when GitHub rejects the workflow — or worse, is silently ignored and the
+  # pipeline does what it would have done anyway.
+  #
+  # One of those has already happened here: a key ended up inside a run block and
+  # bash reported `command not found` at the very end of the run. The other was
+  # avoided only by reading the docs first — timeout-minutes on the gate job in
+  # release.yml is a schema error, not a stricter limit, and this linter names it.
+  #
+  # actionlint resolves every ${{ }} against the contexts actually available at
+  # that position, checks the key set each kind of job may use, and lints the
+  # scripts in run blocks whenever shellcheck is on the runner — it is on
+  # ubuntu-latest. Pinned for the same reason as staticcheck: a linter that
+  # updates itself turns somebody else's release into a red main.
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint"
