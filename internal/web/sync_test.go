@@ -313,7 +313,7 @@ func TestFormatWhenAndDurationStayQuietAboutUnknowns(t *testing.T) {
 	}
 }
 
-// fakeGitHub answers the two endpoints the run list uses.
+// fakeGitHub answers the three endpoints the relocation page uses.
 //
 // The panel talks to a real ghsync.Client pointed at this, not to a stand-in
 // for one: building the request path, decoding the payload and classifying the
@@ -327,16 +327,42 @@ type fakeGitHub struct {
 	jobsStatus int
 	jobsBody   string
 
-	mu        sync.Mutex
-	runsCalls int
-	jobsPaths []string
+	// dispatchStatus is what the dispatches endpoint answers with. Zero means
+	// 204, which is what GitHub actually returns: the request is accepted and
+	// nothing else is said about it.
+	dispatchStatus int
+
+	mu             sync.Mutex
+	runsCalls      int
+	jobsPaths      []string
+	dispatchPaths  []string
+	dispatchBodies []string
 }
+
+// maxDispatchBody caps what the fake reads back, so a runaway request cannot
+// make a failing test allocate without bound.
+const maxDispatchBody = 1 << 16
 
 func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	switch {
+	case strings.HasSuffix(r.URL.Path, "/dispatches"):
+		// The body is kept verbatim: what the panel sends is the whole
+		// contract with the workflow, and it is not visible anywhere else.
+		raw, err := io.ReadAll(io.LimitReader(r.Body, maxDispatchBody))
+		if err != nil {
+			f.t.Errorf("read dispatch body: %v", err)
+		}
+		f.dispatchPaths = append(f.dispatchPaths, r.URL.Path)
+		f.dispatchBodies = append(f.dispatchBodies, string(raw))
+
+		status := f.dispatchStatus
+		if status == 0 {
+			status = http.StatusNoContent
+		}
+		f.reply(w, status, "")
 	case strings.HasSuffix(r.URL.Path, "/jobs"):
 		f.jobsPaths = append(f.jobsPaths, r.URL.Path)
 		f.reply(w, f.jobsStatus, f.jobsBody)
@@ -366,6 +392,13 @@ func (f *fakeGitHub) calls() (int, []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.runsCalls, append([]string(nil), f.jobsPaths...)
+}
+
+// dispatches reports the dispatch calls seen so far, path and body.
+func (f *fakeGitHub) dispatches() ([]string, []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.dispatchPaths...), append([]string(nil), f.dispatchBodies...)
 }
 
 // twoRuns is a listing with one successful and one failed run.
@@ -510,5 +543,145 @@ func TestSyncRunsExplainARejectedToken(t *testing.T) {
 	// what to do about it rather than showing the status text.
 	if !strings.Contains(body, "No GitHub token is usable") {
 		t.Errorf("a 401 from the listing is not explained:\n%s", body)
+	}
+}
+
+func TestSyncDispatchStartsARun(t *testing.T) {
+	api := &fakeGitHub{runsBody: twoRuns}
+	h := newRelayHarness(t, api)
+
+	resp := h.post("/sync/dispatch", url.Values{"images": {"alpine:3.21\nbusybox:1.36"}})
+	body := h.body(resp)
+
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("dispatch = %d, want 303; body: %s", resp.StatusCode, body)
+	}
+
+	// The confirmation is a flash on the next page rather than a message on
+	// this response: a dispatch only queues a run, so there is nothing on it
+	// to render, and the run list is what answers "did it work".
+	want := "/sync?runs=1&flash=sync.dispatched"
+	if got := resp.Header.Get("Location"); got != want {
+		t.Errorf("Location = %q, want %q", got, want)
+	}
+
+	paths, bodies := api.dispatches()
+	if len(paths) != 1 {
+		t.Fatalf("dispatch calls = %v, want exactly one", paths)
+	}
+	if want := "/repos/DC1024/image-relay/actions/workflows/mirrorpilot-relay.yml/dispatches"; paths[0] != want {
+		t.Errorf("dispatch path = %q, want %q", paths[0], want)
+	}
+
+	// The body is the whole contract with the workflow file, and nothing else
+	// in the panel can show what was actually sent.
+	for _, want := range []string{
+		`"target":"registry.cn-hangzhou.aliyuncs.com/dc-images"`,
+		`"images":"alpine:3.21\nbusybox:1.36"`,
+		`"ref":"main"`,
+	} {
+		if !strings.Contains(bodies[0], want) {
+			t.Errorf("the dispatch body is missing %s:\n%s", want, bodies[0])
+		}
+	}
+
+	if page := h.body(h.get("/sync?runs=1&flash=sync.dispatched")); !strings.Contains(page, "Run dispatched") {
+		t.Errorf("the flash never reaches the page it redirects to:\n%s", page)
+	}
+}
+
+func TestSyncDispatchKeepsTheImagesWhenGitHubRefuses(t *testing.T) {
+	api := &fakeGitHub{
+		runsBody:       twoRuns,
+		dispatchStatus: http.StatusNotFound,
+	}
+	h := newRelayHarness(t, api)
+
+	resp := h.post("/sync/dispatch", url.Values{"images": {"alpine:3.21\nbusybox:1.36"}})
+	body := h.body(resp)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a refused dispatch = %d, want 400; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "GitHub does not know that repository or workflow") {
+		t.Errorf("a 404 from the dispatch is not explained:\n%s", body)
+	}
+
+	// GitHub's own wording is the diagnosis ("Workflow does not have
+	// 'workflow_dispatch' trigger"), so it has to survive to the page.
+	if !strings.Contains(body, "not found") {
+		t.Errorf("GitHub's message was dropped:\n%s", body)
+	}
+
+	// The pasted list comes back in the box. Losing it would mean retyping
+	// every address to fix a mistake made in the settings.
+	if !strings.Contains(body, "alpine:3.21") || !strings.Contains(body, "busybox:1.36") {
+		t.Errorf("the images were dropped from the form:\n%s", body)
+	}
+}
+
+func TestSyncDispatchRefusesWithoutATarget(t *testing.T) {
+	api := &fakeGitHub{runsBody: twoRuns}
+	h := newRelayHarness(t, api)
+
+	// The pair can be cleared from the settings page, which is a legitimate
+	// state: the repository is set but there is nowhere to copy to.
+	h.body(h.post("/sync/settings", syncForm(map[string]string{
+		"registry":  "",
+		"namespace": "",
+	})))
+
+	resp := h.post("/sync/dispatch", url.Values{"images": {"alpine:3.21"}})
+	body := h.body(resp)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("dispatch without a target = %d, want 400; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "The target registry is not set up properly") {
+		t.Errorf("the refusal does not name the target registry:\n%s", body)
+	}
+	if paths, _ := api.dispatches(); len(paths) != 0 {
+		t.Errorf("a dispatch with no target reached the API: %v", paths)
+	}
+}
+
+func TestSyncDispatchNeedsAToken(t *testing.T) {
+	api := &fakeGitHub{runsBody: twoRuns}
+	h := newRelayHarness(t, api)
+
+	// Repository and target are set, the token has been removed. The dispatch
+	// cannot be made, and a redirect would claim one was.
+	h.body(h.post("/sync/settings", syncForm(map[string]string{"clear_github_token": "1"})))
+
+	resp := h.post("/sync/dispatch", url.Values{"images": {"alpine:3.21"}})
+	body := h.body(resp)
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("dispatch without a token = %d, want 400; body: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "No GitHub token is usable") {
+		t.Errorf("the refusal does not explain the missing token:\n%s", body)
+	}
+	if paths, _ := api.dispatches(); len(paths) != 0 {
+		t.Errorf("a dispatch with no token reached the API: %v", paths)
+	}
+}
+
+func TestSyncDispatchDoesNotRunWhileLocked(t *testing.T) {
+	api := &fakeGitHub{runsBody: twoRuns}
+	h := newRelayHarness(t, api)
+	h.auth.Lock()
+
+	resp := h.post("/sync/dispatch", url.Values{"images": {"alpine:3.21"}})
+	h.body(resp)
+
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("dispatch while locked = %d, want 303", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Location"); got != "/unlock" {
+		t.Errorf("Location = %q, want /unlock", got)
+	}
+	if paths, _ := api.dispatches(); len(paths) != 0 {
+		t.Errorf("a locked panel dispatched anyway: %v", paths)
 	}
 }
