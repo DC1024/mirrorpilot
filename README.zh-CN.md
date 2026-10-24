@@ -91,8 +91,15 @@ MirrorPilot 分阶段开发。下面这些是**当前真正能用**的部分：
 ```bash
 git clone https://github.com/DC1024/mirrorpilot.git
 cd mirrorpilot
+mkdir -p data
+sudo chown 10001 data   # 面板以 uid 10001 运行，不是 root
 docker compose up -d
 ```
+
+这行 `chown` 是唯一不能省的一步。Docker 会把缺失的 bind mount 目录建成
+`root` 所有，而面板不会在一个自己写不进去的数据目录上启动 —— 它会报
+`data directory "/data" is not writable` 并以 exit 1 退出。它说得很清楚，
+不会半死不活地跑着，但这仍然是一步。
 
 然后打开 `http://<主机>:8080`。首次访问会让你创建面板账号——没有默认密码，也不会预先往磁盘上写任何东西。
 

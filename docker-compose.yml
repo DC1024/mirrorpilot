@@ -15,6 +15,17 @@ services:
       # Everything persistent: the config file and the SQLite database, which
       # holds the account, the sessions, and the encrypted credentials.
       # Backing up is copying this one directory.
+      #
+      # It has to be owned by 10001, because the panel does not run as root and
+      # does not chown its own data directory. Docker creates a missing
+      # bind-mount source as root:root, so a fresh clone needs
+      #
+      #   mkdir -p data && sudo chown 10001 data
+      #
+      # before the first `up`. Without it the container exits 1 with
+      # 'data directory "/data" is not writable'. That check is deliberate: a
+      # panel that starts and then cannot save anything is worse than one that
+      # refuses to start.
       - ./data:/data
 
     environment:

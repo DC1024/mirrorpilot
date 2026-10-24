@@ -91,8 +91,15 @@ None of these three touches your system. They generate text, and you decide what
 ```bash
 git clone https://github.com/DC1024/mirrorpilot.git
 cd mirrorpilot
+mkdir -p data
+sudo chown 10001 data   # the panel runs as uid 10001, not root
 docker compose up -d
 ```
+
+The `chown` is the one step that cannot be skipped. Docker creates a missing
+bind-mount directory as `root`, and the panel refuses to start on a data
+directory it cannot write — `data directory "/data" is not writable`, exit 1.
+It says so plainly rather than starting half-broken, but it is still a step.
 
 Then open `http://<host>:8080`. On first run you are asked to create the panel account — there is no default password, and nothing is written to disk in advance.
 
