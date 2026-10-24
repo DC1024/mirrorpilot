@@ -11,8 +11,20 @@ permissions:
   packages: write
 
 jobs:
+  # Nothing is published until the checks in ci.yml pass.
+  #
+  # Without this job the image workflow runs *beside* CI rather than after it:
+  # both trigger on a push to main, so a commit whose tests fail still lands on
+  # :latest, and pulling :latest is how a user finds out. Running the checks a
+  # second time is the price of that guarantee, and it is a cheap one next to
+  # shipping an image nobody verified.
+  test:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
   image:
     name: Publish multi-arch image to GHCR
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
