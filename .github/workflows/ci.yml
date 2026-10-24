@@ -54,6 +54,33 @@ jobs:
       - name: Build
         run: CGO_ENABLED=0 go build ./...
 
+  vulnerabilities:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Logged because the answer depends on it. Findings in this project are
+      # mostly in the standard library, and those are fixed by a patch release
+      # of the toolchain — a red run without the version next to it is not
+      # reproducible.
+      - name: Go toolchain
+        run: go version
+
+      # Reports the vulnerabilities this code can actually reach, not every
+      # advisory against anything in go.sum: an advisory for a package behind
+      # an unused build tag is not a reason to hold a release. Pinned for the
+      # same reason as staticcheck.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
   build-multiarch:
     name: Multi-arch image build
     runs-on: ubuntu-latest
