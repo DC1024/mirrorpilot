@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -1669,4 +1670,113 @@ func (l *requestLog) sawPath(prefix string) bool {
 		}
 	}
 	return false
+}
+
+// --- realm guard -------------------------------------------------------
+
+// TestRealmVerdict is the guard that keeps a mirror from pointing the prober at
+// this machine. The realm is whatever the registry says it is, and the registry
+// is whatever the user added — so every row here is a thing a hostile or
+// merely broken mirror could claim.
+func TestRealmVerdict(t *testing.T) {
+	cases := []struct {
+		name   string
+		realm  string
+		mirror string // empty means no mirror URL at all
+		refuse bool
+	}{
+		// The attack shape: a mirror on the internet names a host on this
+		// network, and the 30-minute sweep walks into it unattended.
+		{"metadata endpoint", "http://169.254.169.254/latest/meta-data/", "https://evil.example", true},
+		{"loopback with port", "http://127.0.0.1:8080/token", "https://evil.example", true},
+		{"loopback ipv6", "http://[::1]/token", "https://evil.example", true},
+		{"localhost name", "http://localhost/token", "https://evil.example", true},
+		{"localhost subdomain", "http://api.localhost/token", "https://evil.example", true},
+		{"wildcard bind", "https://0.0.0.0/token", "https://evil.example", true},
+		{"link local ipv6", "https://[fe80::1]/token", "https://evil.example", true},
+
+		// The same rows again over an http mirror. The first group is refused
+		// by the downgrade rule before the address rule ever runs, so without
+		// these the address check could be deleted and the table would stay
+		// green — which is exactly what the mutation check showed.
+		{"metadata endpoint, http mirror", "http://169.254.169.254/latest/meta-data/", "http://evil.example", true},
+		{"loopback with port, http mirror", "http://127.0.0.1:8080/token", "http://evil.example", true},
+		{"localhost name, http mirror", "http://localhost/token", "http://evil.example", true},
+
+		// Refused for reasons that have nothing to do with addresses.
+		{"credentials in url", "http://user:pw@evil.example/token", "https://evil.example", true},
+		{"not http", "ftp://evil.example/token", "https://evil.example", true},
+		{"no host", "http:///token", "https://evil.example", true},
+
+		// Allowed: the shapes that actually exist in the catalogue.
+		{"same host, other port", "https://a.example:8443/token", "https://a.example", false},
+		{"daocloud", "https://m.daocloud.io/token", "https://docker.m.daocloud.io", false},
+		{"lan harbour", "http://192.168.1.10/token", "http://harbor.lan", false},
+		{"public registry", "https://auth.docker.io/token", "https://mirror.example", false},
+
+		// Same-host beats the local-address rule. A registry on this box that
+		// issues tokens from another port is a normal deployment, and the
+		// tests themselves point realms at their own httptest server.
+		{"local mirror, local realm", "http://localhost:9000/token", "http://localhost:5000", false},
+		{"loopback mirror, loopback realm", "http://127.0.0.1:9000/token", "http://127.0.0.1:5000", false},
+		// The redirect shape: a mirror that 302s from 127.0.0.1 to localhost
+		// challenges from the other name, and re-authorising there has to work.
+		{"loopback under another name", "http://localhost:9000/token", "http://127.0.0.1:5000", false},
+		{"loopback, ipv6", "http://[::1]:9000/token", "http://127.0.0.1:5000", false},
+		// Link-local is not interchangeable with loopback, even when the
+		// mirror is itself local: the metadata endpoint lives there.
+		{"link local next to a loopback mirror", "http://169.254.169.254/", "http://127.0.0.1:5000", true},
+
+		// The downgrade rule only fires in one direction.
+		{"https mirror, http realm", "http://a.example/token", "https://a.example", true},
+		{"http mirror, http realm", "http://a.example/token", "http://a.example", false},
+
+		// No mirror URL to compare against: the address rules still apply.
+		{"no mirror, metadata", "http://169.254.169.254/", "", true},
+		{"no mirror, public", "https://a.example/token", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var mirrorURL *url.URL
+			if tc.mirror != "" {
+				u, err := url.Parse(tc.mirror)
+				if err != nil {
+					t.Fatalf("url.Parse(%q): %v", tc.mirror, err)
+				}
+				mirrorURL = u
+			}
+
+			err := realmVerdict(tc.realm, mirrorURL)
+			if tc.refuse && err == nil {
+				t.Errorf("realmVerdict(%q, %q) = nil, want a refusal", tc.realm, tc.mirror)
+			}
+			if !tc.refuse && err != nil {
+				t.Errorf("realmVerdict(%q, %q) = %v, want it allowed", tc.realm, tc.mirror, err)
+			}
+		})
+	}
+}
+
+// TestFetchTokenRefusesRealmOnThisHost is the half a unit test cannot prove: the
+// verdict has to stop the request, not just describe it. The mirror here is
+// elsewhere and only the realm points at the stub, which is exactly the shape
+// of a hostile challenge.
+func TestFetchTokenRefusesRealmOnThisHost(t *testing.T) {
+	srv, _, log := newStub(t, stub{token: http.StatusOK, tokenBody: `{"token":"leaked"}`})
+	p := newProber(t, srv, nil)
+
+	src := mirror.Source{ID: "evil", Name: "Evil", URL: "https://evil.example"}
+
+	got, layer := p.fetchToken(t.Context(), src, authChallenge{realm: srv.URL + "/token"})
+
+	if got != "" {
+		t.Errorf("fetchToken returned token %q, want none", got)
+	}
+	if layer.Status != StatusSkipped {
+		t.Errorf("status = %q, want %q", layer.Status, StatusSkipped)
+	}
+	if log.sawPath("/token") {
+		t.Errorf("the realm was contacted after all: %v", log.paths)
+	}
 }

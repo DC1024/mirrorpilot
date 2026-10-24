@@ -421,6 +421,91 @@ func realmHost(realm string) string {
 	return u.Host
 }
 
+// realmVerdict reports why a challenge's realm must not be contacted, or nil
+// when asking it for a token is fine.
+//
+// The realm arrives in the registry's own 401, and a registry can be any source
+// the user added — including a third-party mirror that answers with whatever it
+// likes. Unchecked, the prober becomes a way to make this machine issue a GET
+// to any address it can reach: the panel's own admin port, another box on the
+// LAN, the cloud metadata endpoint. The body is never shown and no credentials
+// ride along, so it is a blind request — but blind still means sent, and some
+// intranet endpoints act on a GET.
+//
+// mirrorURL is the source being probed; nil simply drops the same-host
+// exemption below.
+//
+// The ordering is load-bearing. Same-host is checked before the local-address
+// rule because a registry deployed on one box routinely issues tokens from
+// another port on that same box, and because the tests point realms at their
+// own httptest server. Comparing hostnames rather than hosts is load-bearing
+// for the same reason: the port almost never matches, so comparing it would
+// turn every legitimate same-host realm into a refusal.
+func realmVerdict(realm string, mirrorURL *url.URL) error {
+	u, err := url.Parse(realm)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return errors.New("token realm was not a usable URL")
+	}
+	// http://user:pw@host/ would put credentials in the request line and in
+	// the mirror's logs. No registry needs this, and nothing here can use it.
+	if u.User != nil {
+		return errors.New("token realm carried credentials")
+	}
+	// A https mirror that names an http realm is asking for the token in
+	// clear text — and the token then travels back to the mirror over TLS
+	// having already been exposed. Refusing keeps the downgrade from being
+	// something a registry can choose for us.
+	if u.Scheme == "http" && mirrorURL != nil && mirrorURL.Scheme == "https" {
+		return errors.New("token realm would send a token over http")
+	}
+	if mirrorURL != nil && strings.EqualFold(u.Hostname(), mirrorURL.Hostname()) {
+		return nil
+	}
+	// A loopback realm is still fine when the mirror is loopback too: 127.0.0.1
+	// and localhost are the same box, and a registry that redirects from one to
+	// the other is a real shape (hub.rat.dev does exactly this). Both ends
+	// being loopback means the user pointed the probe at their own machine, so
+	// nothing is reached that they did not configure.
+	if isLoopbackHost(u.Hostname()) && mirrorURL != nil && isLoopbackHost(mirrorURL.Hostname()) {
+		return nil
+	}
+	// Loopback, link-local and the unspecified address are the three that turn
+	// a probe into a request against something that is not a registry: this
+	// host's own services, the metadata endpoint, the wildcard bind. RFC1918 is
+	// deliberately absent — a mirror on the office LAN is a normal thing to
+	// probe, and its token issuer is routinely a different box on that LAN.
+	if isLocalHost(u.Hostname()) {
+		return errors.New("token realm pointed at a local address")
+	}
+	return nil
+}
+
+// isLoopbackHost reports whether host names this machine: localhost, a
+// .localhost name, or a loopback address.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+// isLocalHost reports whether host only means something on this machine or this
+// link. RFC1918 is absent on purpose: a mirror on the office LAN is a normal
+// thing to probe.
+func isLocalHost(host string) bool {
+	if isLoopbackHost(host) {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
 // fetchToken is layer 2.
 //
 // The endpoint comes from the registry, not from us: the challenge on the 401
@@ -438,9 +523,12 @@ func (p *Prober) fetchToken(ctx context.Context, src mirror.Source, challenge au
 	if challenge.realm == "" {
 		return "", Layer{Status: StatusSkipped, Detail: "registry did not request a token"}
 	}
-	if u, err := url.Parse(challenge.realm); err != nil ||
-		(u.Scheme != "http" && u.Scheme != "https") {
-		return "", Layer{Status: StatusSkipped, Detail: "token realm was not a usable URL"}
+	// The source URL decides what counts as same-host. It was validated when
+	// the source was added, so a parse failure here means a hand-edited
+	// sources.json; nil only drops the exemption.
+	mirrorURL, _ := url.Parse(src.URL)
+	if err := realmVerdict(challenge.realm, mirrorURL); err != nil {
+		return "", Layer{Status: StatusSkipped, Detail: err.Error()}
 	}
 
 	query := url.Values{}
