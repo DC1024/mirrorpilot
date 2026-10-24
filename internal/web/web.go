@@ -91,6 +91,14 @@ type Options struct {
 	// which is what it did before this existed.
 	Activity *probe.Activity
 
+	// GHClient builds the GitHub client the relocation page uses.
+	//
+	// Nil means the real one, which is what production gets. A test supplies a
+	// factory that points the client at its own server: the real client only
+	// ever talks to api.github.com, so without this the run list cannot be
+	// exercised past its error paths.
+	GHClient GHClientFactory
+
 	// Version is shown in the footer.
 	Version string
 
@@ -111,6 +119,7 @@ type Server struct {
 	auth     *auth.Manager
 	i18n     *i18n.Bundle
 	probe    ProbeFactory
+	ghClient GHClientFactory
 	activity *probe.Activity
 	log      *slog.Logger
 	version  string
@@ -156,11 +165,20 @@ func New(opts Options) (*Server, error) {
 		activity = &probe.Activity{}
 	}
 
+	// Same treatment as Activity: nil is the normal case in production. Filled
+	// in here rather than at the call site so a Server cannot end up with a nil
+	// factory and panic on the first visit to the relocation page.
+	ghClient := opts.GHClient
+	if ghClient == nil {
+		ghClient = defaultGHClient
+	}
+
 	s := &Server{
 		store:    opts.Store,
 		auth:     opts.Auth,
 		i18n:     opts.I18n,
 		probe:    opts.Probe,
+		ghClient: ghClient,
 		activity: activity,
 		log:      log,
 		version:  opts.Version,

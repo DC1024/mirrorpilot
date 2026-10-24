@@ -204,13 +204,25 @@ func (s *Server) syncSettings(ctx context.Context) (ghsync.Spec, ghsync.Target, 
 		nil
 }
 
+// GHClientFactory builds a GitHub client from a stored token.
+//
+// A factory rather than a client because the token is a setting read on every
+// request: a client built once at startup would keep using a token the user has
+// since replaced.
+type GHClientFactory func(token string) (*ghsync.Client, error)
+
+// defaultGHClient is what production gets: the real API and the real timeout.
+func defaultGHClient(token string) (*ghsync.Client, error) {
+	return ghsync.NewClient(token)
+}
+
 // syncClient builds a GitHub client from the stored token.
 func (s *Server) syncClient(ctx context.Context) (*ghsync.Client, error) {
 	token, err := s.auth.Credential(ctx, store.CredentialGitHubToken)
 	if err != nil {
 		return nil, err
 	}
-	return ghsync.NewClient(string(token))
+	return s.ghClient(string(token))
 }
 
 // loadRuns fills in the recent runs and, when asked, one run's jobs.

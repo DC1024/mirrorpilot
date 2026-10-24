@@ -1,9 +1,12 @@
 package web
 
 import (
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -307,5 +310,205 @@ func TestFormatWhenAndDurationStayQuietAboutUnknowns(t *testing.T) {
 	}
 	if got := formatDuration(90 * time.Second); got != "1m30s" {
 		t.Errorf("formatDuration(90s) = %q", got)
+	}
+}
+
+// fakeGitHub answers the two endpoints the run list uses.
+//
+// The panel talks to a real ghsync.Client pointed at this, not to a stand-in
+// for one: building the request path, decoding the payload and classifying the
+// status are the parts worth covering, and an interface would replace exactly
+// those with whatever the fake decided to return.
+type fakeGitHub struct {
+	t *testing.T
+
+	runsStatus int
+	runsBody   string
+	jobsStatus int
+	jobsBody   string
+
+	mu        sync.Mutex
+	runsCalls int
+	jobsPaths []string
+}
+
+func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	switch {
+	case strings.HasSuffix(r.URL.Path, "/jobs"):
+		f.jobsPaths = append(f.jobsPaths, r.URL.Path)
+		f.reply(w, f.jobsStatus, f.jobsBody)
+	case strings.HasSuffix(r.URL.Path, "/runs"):
+		f.runsCalls++
+		f.reply(w, f.runsStatus, f.runsBody)
+	default:
+		f.t.Errorf("the panel asked for %s, which this fake does not serve", r.URL.Path)
+		f.reply(w, http.StatusNotFound, `{"message":"not found"}`)
+	}
+}
+
+func (f *fakeGitHub) reply(w http.ResponseWriter, status int, body string) {
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if _, err := io.WriteString(w, body); err != nil {
+		f.t.Errorf("write reply: %v", err)
+	}
+}
+
+// calls reports how many times each endpoint was hit, under the same lock the
+// handler uses so -race has nothing to complain about.
+func (f *fakeGitHub) calls() (int, []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.runsCalls, append([]string(nil), f.jobsPaths...)
+}
+
+// twoRuns is a listing with one successful and one failed run.
+const twoRuns = `{"workflow_runs":[
+  {"id":42,"status":"completed","conclusion":"success","event":"workflow_dispatch",
+   "name":"Relay alpine","html_url":"https://github.com/DC1024/image-relay/actions/runs/42",
+   "head_branch":"main","created_at":"2026-10-24T10:00:00Z"},
+  {"id":41,"status":"completed","conclusion":"failure","event":"workflow_dispatch",
+   "name":"Relay busybox","html_url":"https://github.com/DC1024/image-relay/actions/runs/41",
+   "head_branch":"main","created_at":"2026-10-23T09:00:00Z"}]}`
+
+// newRelayHarness wires the panel to a fake GitHub and stores the settings the
+// relocation page needs, so the run list has somewhere to read from.
+func newRelayHarness(t *testing.T, api *fakeGitHub) *harness {
+	t.Helper()
+
+	api.t = t
+	gh := httptest.NewServer(api)
+	t.Cleanup(gh.Close)
+
+	h := newHarness(t, func(o *Options) {
+		o.GHClient = func(token string) (*ghsync.Client, error) {
+			return ghsync.NewClient(token, ghsync.WithBaseURL(gh.URL))
+		}
+	})
+
+	if resp := h.setup(); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login = %d, want 303; body: %s", resp.StatusCode, h.body(resp))
+	}
+	h.body(h.post("/sync/settings", syncForm(nil)))
+	return h
+}
+
+func TestSyncRunsAreListed(t *testing.T) {
+	api := &fakeGitHub{runsBody: twoRuns}
+	h := newRelayHarness(t, api)
+
+	body := h.body(h.get("/sync?runs=1"))
+
+	for _, want := range []string{"#42", "#41", "actions/runs/42", "main"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the run list is missing %q:\n%s", want, body)
+		}
+	}
+	if runs, jobs := api.calls(); runs != 1 || len(jobs) != 0 {
+		t.Errorf("calls = %d to runs, %d to jobs; want 1 and 0", runs, len(jobs))
+	}
+}
+
+func TestSyncRunsSayWhenThereAreNone(t *testing.T) {
+	api := &fakeGitHub{runsBody: `{"workflow_runs":[]}`}
+	h := newRelayHarness(t, api)
+
+	body := h.body(h.get("/sync?runs=1"))
+
+	// A workflow that has never run is a normal state, not an error, and the
+	// page has to say which of the two it is looking at.
+	if !strings.Contains(body, "No runs yet") {
+		t.Errorf("an empty listing is not explained:\n%s", body)
+	}
+}
+
+func TestSyncJobsAreListedForTheSelectedRun(t *testing.T) {
+	api := &fakeGitHub{
+		runsBody: twoRuns,
+		jobsBody: `{"jobs":[{"id":7,"name":"relay","status":"completed","conclusion":"success",
+		  "html_url":"https://github.com/DC1024/image-relay/actions/runs/42/job/7",
+		  "started_at":"2026-10-24T10:00:00Z","completed_at":"2026-10-24T10:01:30Z"}]}`,
+	}
+	h := newRelayHarness(t, api)
+
+	body := h.body(h.get("/sync?runs=1&run=42"))
+
+	if !strings.Contains(body, "Jobs in run") {
+		t.Errorf("the selected run has no job section:\n%s", body)
+	}
+	if !strings.Contains(body, "relay") || !strings.Contains(body, "1m30s") {
+		t.Errorf("the job row is missing its name or duration:\n%s", body)
+	}
+
+	_, jobs := api.calls()
+	if len(jobs) != 1 || !strings.Contains(jobs[0], "/actions/runs/42/jobs") {
+		t.Errorf("jobs requests = %v, want one for run 42", jobs)
+	}
+}
+
+func TestSyncJobsAreNotFetchedForARunTheListDoesNotContain(t *testing.T) {
+	api := &fakeGitHub{runsBody: twoRuns}
+	h := newRelayHarness(t, api)
+
+	// 999 was never listed. A hand-typed id must not become an arbitrary API
+	// call made on the visitor's behalf.
+	body := h.body(h.get("/sync?runs=1&run=999"))
+
+	if strings.Contains(body, "Jobs in run") {
+		t.Error("the page claims to show jobs for a run it never listed")
+	}
+	if _, jobs := api.calls(); len(jobs) != 0 {
+		t.Errorf("a run id the listing did not contain reached the API: %v", jobs)
+	}
+}
+
+func TestSyncRunsExplainAFailedListing(t *testing.T) {
+	api := &fakeGitHub{runsStatus: http.StatusInternalServerError, runsBody: `{"message":"boom"}`}
+	h := newRelayHarness(t, api)
+
+	body := h.body(h.get("/sync?runs=1"))
+
+	if !strings.Contains(body, "GitHub could not answer") {
+		t.Errorf("a 500 from the listing is not explained:\n%s", body)
+	}
+	if _, jobs := api.calls(); len(jobs) != 0 {
+		t.Errorf("jobs were fetched despite the listing failing: %v", jobs)
+	}
+}
+
+func TestSyncJobsExplainAFailedListing(t *testing.T) {
+	api := &fakeGitHub{
+		runsBody:   twoRuns,
+		jobsStatus: http.StatusBadGateway,
+		jobsBody:   `{"message":"bad gateway"}`,
+	}
+	h := newRelayHarness(t, api)
+
+	body := h.body(h.get("/sync?runs=1&run=42"))
+
+	if !strings.Contains(body, "GitHub could not answer") {
+		t.Errorf("a failed job listing is not explained:\n%s", body)
+	}
+	if !strings.Contains(body, "#42") {
+		t.Error("the run list disappeared when only the job listing failed")
+	}
+}
+
+func TestSyncRunsExplainARejectedToken(t *testing.T) {
+	api := &fakeGitHub{runsStatus: http.StatusUnauthorized, runsBody: `{"message":"Bad credentials"}`}
+	h := newRelayHarness(t, api)
+
+	body := h.body(h.get("/sync?runs=1"))
+
+	// A revoked token is a configuration state, not a bug, so the page says
+	// what to do about it rather than showing the status text.
+	if !strings.Contains(body, "No GitHub token is usable") {
+		t.Errorf("a 401 from the listing is not explained:\n%s", body)
 	}
 }
